@@ -1,0 +1,8 @@
+# Toolchain default di mesin ini: MSVC tanpa C++ build tools.
+# Pakai target GNU (MinGW) supaya tetap bisa build tanpa install VS C++ workload.
+[build]
+target = "x86_64-pc-windows-gnu"
+
+[target.x86_64-pc-windows-gnu]
+linker = "gcc"
+ar = "ar"

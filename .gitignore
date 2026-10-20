@@ -1,0 +1,115 @@
+# Rust & Cargo
+target/
+**/target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# Tauri (auto-generated schemas)
+gen/schemas/
+**/src-tauri/gen/schemas/
+
+# Node & Package Managers
+node_modules/
+**/node_modules/
+package-lock.json.bak
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# SvelteKit & Vite Build Cache
+.svelte-kit/
+**/.svelte-kit/
+.output/
+**/.output/
+dist/
+**/dist/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Frontend Build Output (Hasil build Svelte -> ../frontend)
+# Folder ini di-generate otomatis saat `npm run build`
+frontend/
+!frontend/robots.txt
+
+# Local App Data & Runtime Storage
+tasks.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data.bin
+data.cfg
+config.json
+
+
+# Logs & Temporary Files
+*.log
+**/*.log
+*.err
+**/*.err
+*.tmp
+**/*.tmp
+verdict.txt
+**/verdict.txt
+
+# Compiled Binaries (Executable di luar target)
+*.exe
+*.dll
+*.pdb
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Editor & IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# AI Assistants & Agents
+AGENTS.md
+**/AGENTS.md
+.agents/
+**/.agents/
+GEMINI.md
+**/GEMINI.md
+.gemini/
+**/.gemini/
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+**/.claude/
+.cursor/
+**/.cursor/
+.cursorrules
+**/.cursorrules
+.windsurf/
+**/.windsurf/
+.windsurfrules
+**/.windsurfrules
+.copilot/
+**/.copilot/
+.copilot-instructions.md
+**/.copilot-instructions.md
+.github/skills/
+**/.github/skills/
+.continue/
+**/.continue/
+.cline/
+**/.cline/
+.roo/
+**/.roo/
+*.chat

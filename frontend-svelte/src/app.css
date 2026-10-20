@@ -1,0 +1,107 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+    --background: #eef1f6;
+    --foreground: #1f2430;
+    --card: #ffffff;
+    --card-foreground: #1f2430;
+    --muted: #e2e7ef;
+    --muted-foreground: #7b8798;
+    --border: #d5dbe5;
+    --input: #d5dbe5;
+    --primary: #2563eb;
+    --primary-foreground: #ffffff;
+    --accent: #2563eb;
+    --accent-foreground: #ffffff;
+    --secondary: #e2e7ef;
+    --secondary-foreground: #1f2430;
+    --destructive: #dc2626;
+    --destructive-foreground: #ffffff;
+    --popover: #ffffff;
+    --popover-foreground: #1f2430;
+    --ring: #2563eb;
+    --ok: #16a34a;
+    --warn: #dc2626;
+    --radius: 0.5rem;
+}
+
+.dark {
+    --background: #0f141b;
+    --foreground: #e6e9ef;
+    --card: #171d26;
+    --card-foreground: #e6e9ef;
+    --muted: #202835;
+    --muted-foreground: #9aa7b8;
+    --border: #2a3342;
+    --input: #2a3342;
+    --primary: #3b82f6;
+    --primary-foreground: #ffffff;
+    --accent: #3b82f6;
+    --accent-foreground: #ffffff;
+    --secondary: #202835;
+    --secondary-foreground: #e6e9ef;
+    --destructive: #ef4444;
+    --destructive-foreground: #ffffff;
+    --popover: #171d26;
+    --popover-foreground: #e6e9ef;
+    --ring: #3b82f6;
+    --ok: #22c55e;
+    --warn: #ef4444;
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --color-card: var(--card);
+    --color-card-foreground: var(--card-foreground);
+    --color-muted: var(--muted);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-border: var(--border);
+    --color-input: var(--input);
+    --color-primary: var(--primary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-accent: var(--accent);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-secondary: var(--secondary);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-destructive: var(--destructive);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-popover: var(--popover);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-ring: var(--ring);
+    --color-ok: var(--ok);
+    --color-warn: var(--warn);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+}
+
+@layer base {
+    * {
+        border-color: var(--border);
+        box-sizing: border-box;
+    }
+
+    html,
+    body {
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+    }
+
+    body {
+        background: var(--background);
+        color: var(--foreground);
+        font: 13px/1.4 'Segoe UI', system-ui, sans-serif;
+        user-select: none;
+        -webkit-user-select: none;
+    }
+
+    input {
+        user-select: text;
+        -webkit-user-select: text;
+    }
+}

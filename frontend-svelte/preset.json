@@ -1,0 +1,18 @@
+{
+  "code": "b7qmW75gMy",
+  "version": "b",
+  "values": {
+    "menuColor": "default",
+    "menuAccent": "subtle",
+    "radius": "small",
+    "font": "geist",
+    "iconLibrary": "lucide",
+    "theme": "fuchsia",
+    "baseColor": "mist",
+    "style": "rhea",
+    "chartColor": "mist",
+    "fontHeading": "instrument-sans"
+  },
+  "derived": [],
+  "url": "https://ui.shadcn.com/create?preset=b7qmW75gMy"
+}
