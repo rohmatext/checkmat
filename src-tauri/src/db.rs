@@ -96,6 +96,7 @@ pub struct Category {
     pub id: i64,
     pub name: String,
     pub color: String,
+    pub pos: i64,
 }
 
 #[derive(Serialize)]
@@ -302,6 +303,7 @@ impl Db {
                     name TEXT NOT NULL,
                     color TEXT,
                     project_id INTEGER NOT NULL,
+                    pos INTEGER NOT NULL DEFAULT 0,
                     UNIQUE(project_id, name)
                 );",
             )
@@ -333,13 +335,26 @@ impl Db {
                         name TEXT NOT NULL,
                         color TEXT,
                         project_id INTEGER NOT NULL,
+                        pos INTEGER NOT NULL DEFAULT 0,
                         UNIQUE(project_id, name)
                     );
-                    INSERT INTO categories(id, name, color, project_id)
-                    SELECT id, name, color, {default_project} FROM categories_legacy;
+                    INSERT INTO categories(id, name, color, project_id, pos)
+                    SELECT id, name, color, {default_project}, id * 10 FROM categories_legacy;
                     DROP TABLE categories_legacy;"
                 ))
                 .expect("migrasi categories ke project");
+            }
+            let has_pos: bool = conn
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM pragma_table_info('categories') WHERE name='pos')",
+                    [],
+                    |r| r.get(0),
+                )
+                .expect("periksa kolom pos categories");
+            if !has_pos {
+                conn.execute("ALTER TABLE categories ADD COLUMN pos INTEGER NOT NULL DEFAULT 0", [])
+                    .expect("tambah kolom pos");
+                conn.execute("UPDATE categories SET pos = id * 10", []).ok();
             }
         }
         conn.execute_batch(
@@ -477,8 +492,8 @@ pub fn list_categories(db: tauri::State<Db>, project_id: i64) -> R<Vec<Category>
     let c = conn(&db);
     let mut st = c
         .prepare(
-            "SELECT id, name, COALESCE(color, '') FROM categories
-             WHERE project_id=? ORDER BY name COLLATE NOCASE",
+            "SELECT id, name, COALESCE(color, ''), pos FROM categories
+             WHERE project_id=? ORDER BY pos ASC, id ASC",
         )
         .map_err(|e| e.to_string())?;
     let rows = st
@@ -487,6 +502,7 @@ pub fn list_categories(db: tauri::State<Db>, project_id: i64) -> R<Vec<Category>
                 id: r.get(0)?,
                 name: r.get(1)?,
                 color: r.get(2)?,
+                pos: r.get(3)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -618,9 +634,16 @@ pub fn add_category(
     ) {
         return Ok(id);
     }
+    let next_pos: i64 = c
+        .query_row(
+            "SELECT COALESCE(MAX(pos), -10) + 10 FROM categories WHERE project_id=?",
+            [project_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
     c.execute(
-        "INSERT INTO categories(name, color, project_id) VALUES(?, ?, ?)",
-        rusqlite::params![name, color, project_id],
+        "INSERT INTO categories(name, color, project_id, pos) VALUES(?, ?, ?, ?)",
+        rusqlite::params![name, color, project_id, next_pos],
     )
     .map_err(|e| e.to_string())?;
     let id = c.last_insert_rowid();
@@ -711,6 +734,22 @@ pub fn delete_category(db: tauri::State<Db>, id: i64, project_id: i64) -> R<()> 
         rusqlite::params![id, project_id],
     )
         .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_categories(db: tauri::State<Db>, ids: Vec<i64>, project_id: i64) -> R<()> {
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE categories SET pos=? WHERE id=? AND project_id=?",
+            rusqlite::params![(i as i64) * 10, id, project_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     save(&c, &db.path);
     Ok(())
 }
@@ -840,6 +879,68 @@ pub fn hard_delete(db: tauri::State<Db>, id: i64) -> R<()> {
     let c = conn(&db);
     c.execute("DELETE FROM tasks WHERE id=? AND deleted=1", [id])
         .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn soft_delete_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let t = now();
+    for id in ids {
+        tx.execute(
+            "UPDATE tasks SET deleted=1, deleted_at=? WHERE id=? AND deleted=0",
+            rusqlite::params![t, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn restore_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for id in ids {
+        if let Ok((done, cat)) = tx.query_row(
+            "SELECT done, category_id FROM tasks WHERE id=? AND deleted=1",
+            [id],
+            |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)),
+        ) {
+            let pos = top_pos(&tx, done != 0, cat);
+            tx.execute(
+                "UPDATE tasks SET deleted=0, deleted_at=NULL, pos=? WHERE id=? AND deleted=1",
+                rusqlite::params![pos, id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn hard_delete_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for id in ids {
+        tx.execute("DELETE FROM tasks WHERE id=? AND deleted=1", [id])
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
     save(&c, &db.path);
     Ok(())
 }

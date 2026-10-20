@@ -1,13 +1,16 @@
 # CheckMat
 
-Aplikasi desktop to-do list sederhana yang dibuat berdasarkan kebutuhan pribadi untuk mencatat dan menceklis pekerjaan agar lebih mudah dikelola, praktis digunakan, dan sesuai kebutuhan. Aplikasi ini memiliki jendela berukuran 480 × 640 piksel, penyimpanan data lokal terenkripsi, serta fitur perlindungan menggunakan PIN.
+Aplikasi desktop to-do list sederhana yang dibuat berdasarkan kebutuhan pribadi untuk mencatat dan menceklis pekerjaan agar lebih mudah dikelola, praktis digunakan, dan sesuai kebutuhan. Dilengkapi penyimpanan data lokal terenkripsi serta fitur perlindungan menggunakan PIN.
 
 ## Fitur
 
 - Kunci PIN (4-6 digit)
-- Multi-project dan kategori tugas
+- Multi-project dan pengelolaan kategori tugas
 - 3 tab status: Task, Selesai, Dihapus
-- Drag & drop untuk ubah urutan tugas
+- Drag & drop untuk mengubah urutan tugas dan kategori
+- Berbagai opsi pengurutan tugas (posisi, kategori, waktu, nama)
+- Single instance (hanya satu aplikasi yang berjalan bersamaan)
+- Tema gelap dan terang
 - Export dan import CSV
 
 ## Tech Stack
@@ -48,7 +51,7 @@ cd src-tauri && cargo build --release
 ```
 
 Hasil file:
-`src-tauri\target\x86_64-pc-windows-gnu\release\checkmat.exe` (± 4.9 MB).
+`src-tauri\target\x86_64-pc-windows-gnu\release\checkmat.exe`
 
 ## Struktur Folder
 
