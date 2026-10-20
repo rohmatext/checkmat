@@ -17,5 +17,5 @@ cargo build --release
 if errorlevel 1 ( echo GAGAL di cargo & pause & exit /b 1 )
 
 echo.
-echo SUKSES: %~dp0src-tauri\target\x86_64-pc-windows-gnu\release\taskmini.exe
+echo SUKSES: %~dp0src-tauri\target\x86_64-pc-windows-gnu\release\checkmat.exe
 pause
