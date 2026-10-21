@@ -35,7 +35,7 @@
 			if (mode === 'add') {
 				const id = await invoke<number>('add_project', { name, description: projectDescription });
 				await onSaved(id);
-				toast.success('Project berhasil ditambahkan');
+				toast.success('Space berhasil ditambahkan');
 			} else if (project) {
 				await invoke('update_project', {
 					id: project.id,
@@ -43,7 +43,7 @@
 					description: projectDescription
 				});
 				await onSaved(project.id);
-				toast.success('Project berhasil diperbarui');
+				toast.success('Space berhasil diperbarui');
 			}
 			mode = null;
 		} catch (e) {
@@ -55,16 +55,16 @@
 <Dialog.Root open={mode !== null} onOpenChange={(open) => { if (!open) mode = null; }}>
 	<Dialog.Content class="max-w-xs gap-4 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>{mode === 'add' ? 'Tambah project' : 'Edit project'}</Dialog.Title>
+			<Dialog.Title>{mode === 'add' ? 'Tambah space' : 'Edit space'}</Dialog.Title>
 			<Dialog.Description class="text-xs">
-				{mode === 'add' ? 'Project baru akan dibuat dengan kategori Umum.' : 'Perbarui nama dan deskripsi project.'}
+				{mode === 'add' ? 'Space baru akan dibuat dengan kategori Umum.' : 'Perbarui nama dan deskripsi space.'}
 			</Dialog.Description>
 		</Dialog.Header>
 		<!-- svelte-ignore a11y_autofocus -->
 		<Input
 			bind:value={projectName}
 			autofocus
-			placeholder="Nama project"
+			placeholder="Nama space"
 			class="h-8 text-xs"
 			onkeydown={(e) => e.key === 'Enter' && submitProject()}
 		/>

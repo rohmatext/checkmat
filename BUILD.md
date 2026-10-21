@@ -14,7 +14,6 @@ Panduan lengkap dari nol sampai EXE jadi. Semua perintah dijalankan dari
 | **MinGW-w64 gcc**    | `gcc --version`         | install WinLibs POSIX/UCRT, tambahkan `<winlibs>\mingw64\bin` ke PATH |
 | **windres**          | `windres --version`     | ikut paket MinGW di atas                                              |
 | **WebView2 Runtime** | Windows 11 sudah bawaan | install "Evergreen Runtime" dari Microsoft                            |
-| **Python**           | `py -V`                 | dipakai `gen_icons.py` untuk bikin ikon                               |
 
 Kenapa target GNU? Mesin ini **tidak punya MSVC C++ build tools**. File
 `src-tauri/.cargo/config.toml` memaksa target `x86_64-pc-windows-gnu` + linker `gcc`:
@@ -61,19 +60,7 @@ dir taskmini-tauri\frontend\_app\immutable\entry
 
 ---
 
-## 2. Generate ikon
-
-```
-cd taskmini-tauri
-py gen_icons.py
-```
-
-Menghasilkan `src-tauri/icons/icon.ico` (dan PNG) dari skrip. Lewati kalau ikon
-tidak berubah.
-
----
-
-## 3. Build EXE Rust
+## 2. Build EXE Rust
 
 **Penting — jalankan dari dalam folder `src-tauri`.** Kalau dijalankan dari
 folder induk dengan `--manifest-path`, `.cargo/config.toml` tidak terbaca,
@@ -124,68 +111,50 @@ mengganti `checkmat.exe` di folder yang sama, data lama tetap terbaca.
 
 ---
 
-## 5. Satu perintah (skrip otomatis)
+## 4. Satu perintah (skrip otomatis)
 
 File `taskmini-tauri\build_exe.bat` sudah disediakan:
 
 ```bat
 @echo off
 cd /d %~dp0
-py gen_icons.py
-cd src-tauri
-cargo build --release
-echo.
-echo Selesai. Exe ada di: src-tauri\target\x86_64-pc-windows-gnu\release\taskmini.exe
-pause
-```
 
-Kekurangan: **tidak** membuild frontend. Kalau kamu mengubah UI Svelte, harus
-jalankan langkah 1 dulu. Versi lengkapnya:
-
-```bat
-@echo off
-cd /d %~dp0
-
-echo [1/3] Build frontend Svelte...
+echo [1/2] Build frontend Svelte...
 pushd frontend-svelte
 call npm run build
 if errorlevel 1 ( echo GAGAL di frontend & popd & pause & exit /b 1 )
 popd
 
-echo [2/3] Generate ikon...
-py gen_icons.py
-
-echo [3/3] Build EXE...
+echo [2/2] Build EXE...
 cd src-tauri
 cargo build --release
 if errorlevel 1 ( echo GAGAL di cargo & pause & exit /b 1 )
 
 echo.
-echo SUKSES: %~dp0src-tauri\target\x86_64-pc-windows-gnu\release\taskmini.exe
+echo SUKSES: %~dp0src-tauri\target\x86_64-pc-windows-gnu\release\checkmat.exe
 pause
 ```
 
 ---
 
-## 6. Kalau macet
+## 5. Kalau macet
 
 | Gejala                                             | Penyebab                               | Solusi                                          |
 | -------------------------------------------------- | -------------------------------------- | ----------------------------------------------- |
-| `error: linker `link.exe` not found`               | jalan dari folder induk → target MSVC  | `cd src-tauri` dulu                             |
+| `error: linker link.exe not found`                 | jalan dari folder induk → target MSVC  | `cd src-tauri` dulu                             |
 | `config_file_unsupported` (SvelteKit)              | ada `svelte.config.js` di SvelteKit v3 | hapus file itu, pindah opsi ke `vite.config.js` |
 | `module_removed_lib`                               | import `$lib/...`                      | ganti ke `#lib/...` (Kit v3)                    |
-| EXE jalan tapi UI kosong/lama                      | lupa `npm run build`                   | ulangi langkah 1 lalu 3                         |
+| EXE jalan tapi UI kosong/lama                      | lupa `npm run build`                   | ulangi langkah 1 lalu 2                         |
 | `WebView2Loader.dll was not found` saat EXE dibuka | EXE dipindah sendirian                 | bawa seluruh isi folder `release`               |
 | `a11y_...` saat build frontend                     | elemen drag tanpa role                 | tambah `role="listitem"` / `role="list"`        |
 
 ---
 
-## 7. Ringkasan 3 perintah
+## 6. Ringkasan 2 perintah
 
 ```bat
 cd taskmini-tauri\frontend-svelte && npm run build
-cd ..\..\taskmini-tauri && py gen_icons.py
-cd src-tauri && cargo build --release
+cd ..\src-tauri && cargo build --release
 ```
 
 Output:

@@ -29,6 +29,7 @@
 	import * as Select from '#lib/components/ui/select/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
+	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import { getBadgeCls, type Category, type Project, type SortDir, type SortField, type Tab, type Task } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
@@ -351,26 +352,26 @@
 	<!-- project title and navigation + app utilities -->
 	<div class="flex items-center justify-between gap-1 px-2 pt-2">
 		<div class="flex min-w-0 flex-1 items-center gap-1">
-			<Button variant="outline" size="icon-sm" title="Kembali ke project" onclick={onBackToProjects}>
+			<Button variant="outline" size="icon-sm" title="Kembali ke space" onclick={onBackToProjects}>
 				<ArrowLeft />
 			</Button>
 			<button
 				type="button"
 				class="min-w-0 flex-1 truncate px-2 text-left text-sm font-bold hover:text-primary cursor-pointer"
-				title="Pilih project lain"
+				title="Pilih space lain"
 				onclick={onOpenProjectPicker}
 			>
-				{activeProjectItem?.name ?? 'Pilih project'}
+				{activeProjectItem?.name ?? 'Pilih space'}
 			</button>
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-foreground shrink-0" onclick={onOpenProjectPicker} title="Pilih project">
+						<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-foreground shrink-0" onclick={onOpenProjectPicker} title="Pilih space">
 							<FolderOpen />
 						</Button>
 					{/snippet}
 				</Tooltip.Trigger>
-				<Tooltip.Content>Pilih project</Tooltip.Content>
+				<Tooltip.Content>Pilih space</Tooltip.Content>
 			</Tooltip.Root>
 		</div>
 
@@ -423,27 +424,15 @@
 	<!-- filter kategori -->
 	<div class="flex items-center gap-1.5 px-2 pt-2">
 		<div class="min-w-0 flex-1">
-			<Select.Root
-				type="single"
-				value={activeCat === null ? 'all' : String(activeCat)}
-				onValueChange={(v) => v && handlePickCat(v)}
-			>
-				<Select.Trigger class="h-8 w-full rounded-md font-semibold text-xs">
-					<Select.Value placeholder="Semua kategori">
-						{#snippet children()}
-							<span class="truncate">
-								{activeCat === null ? 'Semua kategori' : (curCat?.name ?? 'Semua kategori')}
-							</span>
-						{/snippet}
-					</Select.Value>
-				</Select.Trigger>
-				<Select.Content>
-					<Select.Item value="all" label="Semua kategori" />
-					{#each cats as c (c.id)}
-						<Select.Item value={String(c.id)} label={c.name} />
-					{/each}
-				</Select.Content>
-			</Select.Root>
+			<CategorySelect
+				{cats}
+				value={activeCat}
+				allowAll={true}
+				allLabel="Semua kategori"
+				{tasks}
+				onSelect={(id) => handlePickCat(id === null ? 'all' : String(id))}
+				{onOpenAddCategory}
+			/>
 		</div>
 
 		<div class="flex items-center gap-1 shrink-0">
@@ -868,30 +857,17 @@
 				class="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
 				onkeydown={(e) => e.key === 'Enter' && submitAdd()}
 			/>
-			<Select.Root
-				type="single"
-				value={newCat === null ? '' : String(newCat)}
-				onValueChange={(v) => {
-					if (v) newCat = Number(v);
+			<CategorySelect
+				{cats}
+				value={newCat}
+				placeholder="Kategori"
+				class="shrink-0"
+				triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
+				onSelect={(id) => {
+					if (id !== null) newCat = id;
 				}}
-			>
-				<Select.Trigger
-					size="sm"
-					disabled={cats.length === 0}
-					class="h-6 w-fit max-w-28 shrink-0 rounded-full border-0 bg-transparent px-2 text-xs shadow-none focus-visible:ring-0"
-				>
-					<Select.Value placeholder="Kategori">
-						{#snippet children()}
-							{newCat === null ? 'Kategori' : (byId(newCat)?.name ?? 'Kategori')}
-						{/snippet}
-					</Select.Value>
-				</Select.Trigger>
-				<Select.Content>
-					{#each cats as c (c.id)}
-						<Select.Item value={String(c.id)} label={c.name} />
-					{/each}
-				</Select.Content>
-			</Select.Root>
+				{onOpenAddCategory}
+			/>
 			<Button
 				variant="ghost"
 				size="icon-xs"

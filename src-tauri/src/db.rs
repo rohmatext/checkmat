@@ -104,6 +104,8 @@ pub struct Project {
     pub id: i64,
     pub name: String,
     pub description: String,
+    pub status: String,
+    pub pos: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -276,7 +278,7 @@ impl Db {
                 description TEXT NOT NULL DEFAULT ''
             );
             INSERT INTO projects(name)
-            SELECT 'Project Saya'
+            SELECT 'Space Saya'
             WHERE NOT EXISTS (SELECT 1 FROM projects);",
         )
         .expect("buat tabel projects");
@@ -285,6 +287,38 @@ impl Db {
             [],
         )
         .ok();
+        let has_status: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('projects') WHERE name='status')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if !has_status {
+            conn.execute(
+                "ALTER TABLE projects ADD COLUMN status TEXT NOT NULL DEFAULT 'active'",
+                [],
+            )
+            .ok();
+        }
+        let has_pos: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('projects') WHERE name='pos')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if !has_pos {
+            if conn
+                .execute(
+                    "ALTER TABLE projects ADD COLUMN pos INTEGER NOT NULL DEFAULT 0",
+                    [],
+                )
+                .is_ok()
+            {
+                conn.execute("UPDATE projects SET pos = id * 10 WHERE pos = 0", []).ok();
+            }
+        }
         let default_project: i64 = conn
             .query_row("SELECT id FROM projects ORDER BY id LIMIT 1", [], |r| r.get(0))
             .expect("project awal");
@@ -513,7 +547,7 @@ pub fn list_categories(db: tauri::State<Db>, project_id: i64) -> R<Vec<Category>
 pub fn list_projects(db: tauri::State<Db>) -> R<Vec<Project>> {
     let c = conn(&db);
     let mut st = c
-        .prepare("SELECT id, name, description FROM projects ORDER BY name COLLATE NOCASE")
+        .prepare("SELECT id, name, description, COALESCE(status, 'active'), COALESCE(pos, 0) FROM projects ORDER BY pos ASC, id ASC")
         .map_err(|e| e.to_string())?;
     let rows = st
         .query_map([], |r| {
@@ -521,6 +555,8 @@ pub fn list_projects(db: tauri::State<Db>) -> R<Vec<Project>> {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 description: r.get(2)?,
+                status: r.get(3)?,
+                pos: r.get(4)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -528,21 +564,56 @@ pub fn list_projects(db: tauri::State<Db>) -> R<Vec<Project>> {
 }
 
 #[tauri::command]
+pub fn set_project_status(db: tauri::State<Db>, id: i64, status: String) -> R<()> {
+    let status = status.trim().to_lowercase();
+    if !["active", "completed", "archived"].contains(&status.as_str()) {
+        return Err("Status space tidak valid".into());
+    }
+    let c = conn(&db);
+    c.execute(
+        "UPDATE projects SET status=? WHERE id=?",
+        rusqlite::params![status, id],
+    )
+    .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_projects(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE projects SET pos=? WHERE id=?",
+            rusqlite::params![(i as i64) * 10, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn add_project(db: tauri::State<Db>, name: String, description: String) -> R<i64> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Nama project kosong".into());
+        return Err("Nama space kosong".into());
     }
     let description = description.trim();
     let mut c = conn(&db);
     let tx = c.transaction().map_err(|e| e.to_string())?;
+    let max_pos: i64 = tx
+        .query_row("SELECT COALESCE(MAX(pos), 0) FROM projects", [], |r| r.get(0))
+        .unwrap_or(0);
     tx.execute(
-        "INSERT INTO projects(name, description) VALUES(?, ?)",
-        rusqlite::params![name, description],
+        "INSERT INTO projects(name, description, pos) VALUES(?, ?, ?)",
+        rusqlite::params![name, description, max_pos + 10],
     )
         .map_err(|e| {
             if e.to_string().contains("UNIQUE constraint failed") {
-                "Nama project sudah dipakai".to_string()
+                "Nama space sudah dipakai".to_string()
             } else {
                 e.to_string()
             }
@@ -567,7 +638,7 @@ pub fn update_project(
 ) -> R<()> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Nama project kosong".into());
+        return Err("Nama space kosong".into());
     }
     let description = description.trim();
     let c = conn(&db);
@@ -577,7 +648,7 @@ pub fn update_project(
     )
     .map_err(|e| {
         if e.to_string().contains("UNIQUE constraint failed") {
-            "Nama project sudah dipakai".to_string()
+            "Nama space sudah dipakai".to_string()
         } else {
             e.to_string()
         }
@@ -593,7 +664,7 @@ pub fn delete_project(db: tauri::State<Db>, id: i64) -> R<()> {
         .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
     if total <= 1 {
-        return Err("Minimal harus ada satu project".into());
+        return Err("Minimal harus ada satu space".into());
     }
     let n: i64 = c
         .query_row(
@@ -603,7 +674,7 @@ pub fn delete_project(db: tauri::State<Db>, id: i64) -> R<()> {
         )
         .map_err(|e| e.to_string())?;
     if n > 0 {
-        return Err(format!("Project ini masih memiliki {n} todo."));
+        return Err(format!("Space ini masih memiliki {n} todo."));
     }
     c.execute("DELETE FROM categories WHERE project_id=?", [id])
         .map_err(|e| e.to_string())?;
@@ -774,7 +845,7 @@ pub fn add_task(
         )
         .map_err(|e| e.to_string())?;
     if category_project != project_id {
-        return Err("Kategori bukan bagian dari project aktif".into());
+        return Err("Kategori bukan bagian dari space aktif".into());
     }
     let pos = top_pos(&c, false, category_id);
     c.execute(
@@ -808,7 +879,7 @@ pub fn update_task(
         )
         .map_err(|e| e.to_string())?;
     if category_project != project_id {
-        return Err("Kategori bukan bagian dari project aktif".into());
+        return Err("Kategori bukan bagian dari space aktif".into());
     }
     let old_cat = task_cat(&c, id);
     let pos = if old_cat == category_id {
@@ -823,7 +894,7 @@ pub fn update_task(
     )
     .map_err(|e| e.to_string())?;
     if changed == 0 {
-        return Err("Todo tidak ditemukan di project aktif".into());
+        return Err("Todo tidak ditemukan di space aktif".into());
     }
     save(&c, &db.path);
     Ok(())

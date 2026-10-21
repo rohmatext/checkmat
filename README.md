@@ -5,7 +5,7 @@ Aplikasi desktop to-do list sederhana yang dibuat berdasarkan kebutuhan pribadi 
 ## Fitur
 
 - Kunci PIN (4-6 digit)
-- Multi-project dan pengelolaan kategori tugas
+- Multi-space dan pengelolaan kategori tugas
 - 3 tab status: Task, Selesai, Dihapus
 - Drag & drop untuk mengubah urutan tugas dan kategori
 - Berbagai opsi pengurutan tugas (posisi, kategori, waktu, nama)
@@ -24,12 +24,10 @@ Aplikasi desktop to-do list sederhana yang dibuat berdasarkan kebutuhan pribadi 
 - Rust target GNU (`rustup default stable-x86_64-pc-windows-gnu`)
 - MinGW-w64 gcc di PATH
 - WebView2 Runtime
-- Python 3 (untuk `gen_icons.py`)
 
 ## Cara Menjalankan (Dev)
 
 ```bash
-py gen_icons.py
 cd frontend-svelte && npm install && npm run build && cd ..
 cd src-tauri && cargo run
 ```
@@ -46,7 +44,6 @@ Atau secara manual:
 
 ```cmd
 cd frontend-svelte && npm run build && cd ..
-py gen_icons.py
 cd src-tauri && cargo build --release
 ```
 
@@ -63,6 +60,5 @@ taskmini-tauri/
 │   ├── src/main.rs      # Setup window & handler command
 │   └── src/db.rs        # SQLite in-memory, enkripsi XOR, data & PIN
 ├── build_exe.bat        # Script build 1-klik (frontend + EXE)
-├── gen_icons.py         # Generator icon
 └── README.md
 ```

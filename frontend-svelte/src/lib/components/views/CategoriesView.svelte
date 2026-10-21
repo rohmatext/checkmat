@@ -108,7 +108,7 @@
 			</Button>
 			<div class="min-w-0">
 				<h1 class="text-base font-bold truncate">Kelola Kategori</h1>
-				<p class="text-xs text-muted-foreground truncate">{activeProjectItem?.name ?? 'Project'}</p>
+				<p class="text-xs text-muted-foreground truncate">{activeProjectItem?.name ?? 'Space'}</p>
 			</div>
 		</div>
 		<Button size="sm" onclick={onOpenAddCategory}>

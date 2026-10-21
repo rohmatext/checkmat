@@ -41,6 +41,8 @@ fn main() {
             db::list_projects,
             db::add_project,
             db::update_project,
+            db::set_project_status,
+            db::reorder_projects,
             db::delete_project,
             db::add_category,
             db::rename_category,

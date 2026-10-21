@@ -15,10 +15,14 @@ export type Category = {
 	pos?: number;
 };
 
+export type ProjectStatus = 'active' | 'completed' | 'archived';
+
 export type Project = {
 	id: number;
 	name: string;
 	description: string;
+	status?: ProjectStatus;
+	pos?: number;
 };
 
 export type Tab = 'active' | 'done' | 'deleted';

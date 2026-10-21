@@ -121,7 +121,7 @@
 	}
 
 	function deleteProject(selected: Project) {
-		askConfirm(`Hapus project "${selected.name}"?`, async () => {
+		askConfirm(`Hapus space "${selected.name}"?`, async () => {
 			try {
 				await invoke('delete_project', { id: selected.id });
 				await reloadProjects();
@@ -132,11 +132,27 @@
 					localStorage.removeItem(PROJECT_KEY);
 					page = 'home';
 				}
-				toast.success(`Project "${selected.name}" berhasil dihapus`);
+				toast.success(`Space "${selected.name}" berhasil dihapus`);
 			} catch (e) {
 				toast.error(String(e));
 			}
 		});
+	}
+
+	async function setProjectStatus(id: number, status: 'active' | 'completed' | 'archived') {
+		try {
+			await invoke('set_project_status', { id, status });
+			await reloadProjects();
+			const statusLabel =
+				status === 'completed'
+					? 'ditandai selesai'
+					: status === 'archived'
+						? 'diarsipkan'
+						: 'diaktifkan kembali';
+			toast.success(`Space berhasil ${statusLabel}`);
+		} catch (e) {
+			toast.error(String(e));
+		}
 	}
 
 	function openCategoryDialog(mode: 'add' | 'rename', cat?: Category) {
@@ -177,6 +193,15 @@
 				projectId: activeProject
 			});
 			await reloadCats();
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
+	async function handleReorderProjects(ids: number[]) {
+		try {
+			await invoke('reorder_projects', { ids });
+			await reloadProjects();
 		} catch (e) {
 			toast.error(String(e));
 		}
@@ -356,6 +381,8 @@
 			onPickProject={pickProject}
 			onOpenProjectDialog={openProjectDialog}
 			onDeleteProject={deleteProject}
+			onSetProjectStatus={setProjectStatus}
+			onReorderProjects={handleReorderProjects}
 			onLockApp={lockApp}
 			onToggleTheme={toggleTheme}
 		/>
