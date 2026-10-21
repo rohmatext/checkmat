@@ -348,26 +348,18 @@
 
 				<!-- Dropdown Menu Aksi -->
 				<DropdownMenu.Root>
-					<Tooltip.Root>
-						<Tooltip.Trigger>
-							{#snippet child({ props: tooltipProps })}
-								<DropdownMenu.Trigger>
-									{#snippet child({ props: triggerProps })}
-										<Button
-											{...tooltipProps}
-											{...triggerProps}
-											variant="ghost"
-											size="icon-sm"
-											class="text-muted-foreground hover:text-foreground shrink-0"
-										>
-											<EllipsisVertical class="size-4" />
-										</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-							{/snippet}
-						</Tooltip.Trigger>
-						<Tooltip.Content>Opsi space</Tooltip.Content>
-					</Tooltip.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-sm"
+								class="text-muted-foreground hover:text-foreground shrink-0"
+							>
+								<EllipsisVertical class="size-4" />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end" class="min-w-40 w-40 rounded-lg p-1 shadow-lg border border-border">
 						<DropdownMenu.Item onclick={() => onPickProject(project.id)} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
 							<FolderOpen class="size-3.5 text-primary" /> Buka Space

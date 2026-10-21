@@ -86,11 +86,11 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content class="max-w-xs gap-4 p-4">
+	<Dialog.Content class="max-w-sm gap-4 p-4">
 		<Dialog.Header class="gap-1">
 			<Dialog.Title class="text-sm font-semibold">Import CSV</Dialog.Title>
-			<Dialog.Description class="text-xs">
-				Format: id,text,project,category,done,deleted,created_at,done_at,deleted_at. Kolom text wajib.
+			<Dialog.Description class="text-xs leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere]">
+				Format: <span class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground break-all select-all">id, text, project, category, done, deleted, created_at, done_at, deleted_at</span>. Kolom <span class="font-semibold text-foreground">text</span> wajib.
 			</Dialog.Description>
 		</Dialog.Header>
 		{#if importBusy}

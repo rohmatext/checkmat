@@ -517,20 +517,13 @@
 				<Tooltip.Content>Kunci aplikasi</Tooltip.Content>
 			</Tooltip.Root>
 			<DropdownMenu.Root>
-				<Tooltip.Root>
-					<Tooltip.Trigger>
-						{#snippet child({ props: tooltipProps })}
-							<DropdownMenu.Trigger>
-								{#snippet child({ props: triggerProps })}
-									<Button {...tooltipProps} {...triggerProps} variant="outline" size="icon-sm">
-										<EllipsisVertical />
-									</Button>
-								{/snippet}
-							</DropdownMenu.Trigger>
-						{/snippet}
-					</Tooltip.Trigger>
-					<Tooltip.Content>Menu opsi</Tooltip.Content>
-				</Tooltip.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="icon-sm">
+							<EllipsisVertical />
+						</Button>
+					{/snippet}
+				</DropdownMenu.Trigger>
 				<DropdownMenu.Content align="end" class="min-w-40 w-40 rounded-lg p-1 shadow-lg border border-border">
 					<DropdownMenu.Item onclick={onOpenImportDialog} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
 						<Upload class="size-3.5" /> Import CSV
@@ -580,20 +573,13 @@
 			</Tooltip.Root>
 			{#if activeCat !== null}
 				<DropdownMenu.Root>
-					<Tooltip.Root>
-						<Tooltip.Trigger>
-							{#snippet child({ props: tooltipProps })}
-								<DropdownMenu.Trigger>
-									{#snippet child({ props: triggerProps })}
-										<Button {...tooltipProps} {...triggerProps} variant="outline" size="icon-sm">
-											<Ellipsis />
-										</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-							{/snippet}
-						</Tooltip.Trigger>
-						<Tooltip.Content>Opsi kategori</Tooltip.Content>
-					</Tooltip.Root>
+					<DropdownMenu.Trigger>
+						{#snippet child({ props })}
+							<Button {...props} variant="outline" size="icon-sm">
+								<Ellipsis />
+							</Button>
+						{/snippet}
+					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="end" class="min-w-36 w-36 rounded-lg p-1 shadow-lg border border-border">
 						<DropdownMenu.Item onclick={onOpenRenameCategory} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
 							<Pencil class="size-3.5" /> Edit Kategori

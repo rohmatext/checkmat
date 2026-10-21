@@ -6,6 +6,6 @@
 	let { children } = $props();
 </script>
 
-<Tooltip.Provider delayDuration={300}>
+<Tooltip.Provider delayDuration={300} ignoreNonKeyboardFocus={true} disableHoverableContent={true}>
 	{@render children()}
 </Tooltip.Provider>
