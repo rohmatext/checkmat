@@ -111,7 +111,7 @@
 						</Button>
 					{/snippet}
 				</Tooltip.Trigger>
-				<Tooltip.Content>Kembali ke tugas</Tooltip.Content>
+				<Tooltip.Content>Kembali ke todo</Tooltip.Content>
 			</Tooltip.Root>
 			<div class="min-w-0">
 				<h1 class="text-sm font-bold truncate">Kelola Kategori</h1>

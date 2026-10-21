@@ -167,7 +167,7 @@
 	<header class="flex items-center justify-between gap-2 pb-2.5">
 		<div class="min-w-0">
 			<h1 class="text-sm font-bold tracking-tight">Space</h1>
-			<p class="text-[11px] text-muted-foreground">Pilih space untuk membuka daftar tugas.</p>
+			<p class="text-[11px] text-muted-foreground">Pilih space untuk membuka daftar todo.</p>
 		</div>
 		<Button size="sm" onclick={() => onOpenProjectDialog('add')}>
 			<Plus /> Space

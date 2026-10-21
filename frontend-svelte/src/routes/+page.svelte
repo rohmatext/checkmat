@@ -258,6 +258,21 @@
 		}
 	}
 
+	async function handleDuplicateTask(t: Task) {
+		try {
+			await invoke('add_task', {
+				text: t.text,
+				categoryId: t.category_id,
+				projectId: activeProject,
+				description: t.description ?? ''
+			});
+			await refresh();
+			toast.success('Todo berhasil diduplikat');
+		} catch (e) {
+			toast.error(String(e));
+		}
+	}
+
 	async function handleUpdateTask(id: number, text: string, catId: number, description?: string) {
 		try {
 			await invoke('update_task', { id, text, categoryId: catId, projectId: activeProject, description });
@@ -304,12 +319,12 @@
 	function handleBatchSetDone(ids: number[], done: boolean, onSuccess?: () => void) {
 		if (ids.length === 0) return;
 		const msg = done
-			? `Tandai ${ids.length} tugas yang dipilih selesai?`
-			: `Kembalikan ${ids.length} tugas yang dipilih ke daftar tugas?`;
+			? `Tandai ${ids.length} todo yang dipilih selesai?`
+			: `Kembalikan ${ids.length} todo yang dipilih ke daftar todo?`;
 		askConfirm(msg, async () => {
 			await invoke('set_done_batch', { ids, done });
 			await refresh();
-			toast.success(done ? `${ids.length} tugas ditandai selesai` : `${ids.length} tugas dikembalikan ke daftar tugas`);
+			toast.success(done ? `${ids.length} todo ditandai selesai` : `${ids.length} todo dikembalikan ke daftar todo`);
 			onSuccess?.();
 		}, 'default');
 	}
@@ -386,18 +401,19 @@
 		await reloadProjects();
 		exportDirectory =
 			localStorage.getItem(EXPORT_DIR_KEY) ??
+			localStorage.getItem('taskmini.exportDirectory') ??
 			(await invoke<string>('default_export_dir'));
 
-		const savedProject = localStorage.getItem(PROJECT_KEY);
+		const savedProject = localStorage.getItem(PROJECT_KEY) ?? localStorage.getItem('taskmini.project');
 		const initialProject =
 			projects.find((p) => String(p.id) === savedProject)?.id ?? projects[0]?.id ?? null;
 		if (initialProject !== null) activeProject = initialProject;
 
-		const savedSortField = localStorage.getItem(SORT_FIELD_KEY);
+		const savedSortField = localStorage.getItem(SORT_FIELD_KEY) ?? localStorage.getItem('taskmini.sortField');
 		if (savedSortField && ['cat_pos', 'pos', 'category', 'id', 'text'].includes(savedSortField)) {
 			sortField = savedSortField as SortField;
 		}
-		const savedSortDir = localStorage.getItem(SORT_DIR_KEY);
+		const savedSortDir = localStorage.getItem(SORT_DIR_KEY) ?? localStorage.getItem('taskmini.sortDir');
 		if (savedSortDir === 'asc' || savedSortDir === 'desc') {
 			sortDir = savedSortDir as SortDir;
 		}
@@ -459,6 +475,7 @@
 			onOpenExportDialog={() => (exportDialogOpen = true)}
 			onAddTask={handleAddTask}
 			onUpdateTask={handleUpdateTask}
+			onDuplicateTask={handleDuplicateTask}
 			onToggleDone={handleToggleDone}
 			onSetDoneBatch={handleBatchSetDone}
 			onSoftDelete={handleSoftDelete}

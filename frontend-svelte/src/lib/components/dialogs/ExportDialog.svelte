@@ -19,7 +19,7 @@
 	function timestampFileName() {
 		const d = new Date();
 		const part = (v: number) => String(v).padStart(2, '0');
-		return `${part(d.getFullYear() % 100)}${part(d.getMonth() + 1)}${part(d.getDate())}${part(d.getHours())}${part(d.getMinutes())}${part(d.getSeconds())}_taskmini`;
+		return `${part(d.getFullYear() % 100)}${part(d.getMonth() + 1)}${part(d.getDate())}${part(d.getHours())}${part(d.getMinutes())}${part(d.getSeconds())}_checkmat`;
 	}
 
 	$effect(() => {

@@ -22,7 +22,9 @@
 		Ellipsis,
 		EllipsisVertical,
 		ListChecks,
-		Info
+		Info,
+		Copy,
+		Eye
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import {
@@ -39,6 +41,7 @@
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import CategorySelect from '#lib/components/CategorySelect.svelte';
+	import TaskDetailDialog from '#lib/components/dialogs/TaskDetailDialog.svelte';
 	import { getBadgeCls, type Category, type Project, type SortDir, type SortField, type Tab, type Task } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
@@ -64,6 +67,7 @@
 		onOpenExportDialog,
 		onAddTask,
 		onUpdateTask,
+		onDuplicateTask,
 		onToggleDone,
 		onSetDoneBatch,
 		onSoftDelete,
@@ -97,6 +101,7 @@
 		onOpenExportDialog: () => void;
 		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
+		onDuplicateTask?: (t: Task) => void;
 		onToggleDone: (t: Task) => void;
 		onSetDoneBatch?: (ids: number[], done: boolean, onSuccess?: () => void) => void;
 		onSoftDelete: (t: Task) => void;
@@ -123,6 +128,17 @@
 	let editDescInput: HTMLTextAreaElement | null = $state(null);
 	let confirmDiscard = $state(false);
 	let skipEditClose = $state(false);
+
+	let expandedIds = $state<number[]>([]);
+	let detailTask = $state<Task | null>(null);
+
+	function toggleExpand(id: number) {
+		if (expandedIds.includes(id)) {
+			expandedIds = expandedIds.filter((x) => x !== id);
+		} else {
+			expandedIds = [...expandedIds, id];
+		}
+	}
 
 	function splitDesc(s: string) {
 		const m = s.match(/(?:^|\s)(?:desc|d:|note:)\s+(.*)$/i);
@@ -214,7 +230,7 @@
 			case 'id':
 				return 'Waktu dibuat';
 			case 'text':
-				return 'Nama tugas';
+				return 'Nama todo';
 		}
 	}
 
@@ -447,7 +463,7 @@
 	}
 
 	const tabs: { k: Tab; label: string }[] = [
-		{ k: 'active', label: 'Task' },
+		{ k: 'active', label: 'Todo' },
 		{ k: 'done', label: 'Selesai' },
 		{ k: 'deleted', label: 'Dihapus' }
 	];
@@ -657,10 +673,10 @@
 								</button>
 							{/snippet}
 						</Tooltip.Trigger>
-						<Tooltip.Content>{allRowsSelected ? 'Batal pilih semua' : 'Pilih semua'}</Tooltip.Content>
+						<Tooltip.Content>{allRowsSelected ? 'Batal tandai semua' : 'Tandai semua'}</Tooltip.Content>
 					</Tooltip.Root>
 					<span class="text-[11px] font-semibold truncate">
-						{selectedIds.length} dipilih
+						{selectedIds.length} ditandai
 					</span>
 				</div>
 
@@ -707,7 +723,7 @@
 								class="h-6 px-2 text-[11px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
 								onclick={handleBatchSetUndoneAction}
 							>
-								<Undo2 class="size-3" /> Ke Tugas
+								<Undo2 class="size-3" /> Ke Todo
 							</Button>
 							<Button
 								variant="destructive"
@@ -725,7 +741,7 @@
 						class="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
 						onclick={exitSelectMode}
 					>
-						Selesai
+						Batal
 					</Button>
 				</div>
 			</div>
@@ -757,7 +773,7 @@
 								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="pos" label="Todo Posisi" />
 								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="category" label="Nama Kategori" />
 								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="id" label="Waktu dibuat" />
-								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="text" label="Nama tugas" />
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="text" label="Nama todo" />
 							</Select.Content>
 						</Select.Root>
 						<Tooltip.Root>
@@ -783,7 +799,7 @@
 					</div>
 				{:else}
 					<div class="text-[11px] text-muted-foreground px-1">
-						{rows.length} tugas
+						{rows.length} todo
 					</div>
 				{/if}
 
@@ -798,11 +814,11 @@
 								onclick={() => (selectMode = true)}
 							>
 								<ListChecks class="size-3.5 text-primary" />
-								<span>Pilih</span>
+								<span>Tandai</span>
 							</Button>
 						{/snippet}
 					</Tooltip.Trigger>
-					<Tooltip.Content>Tandai banyak tugas untuk dihapus sekaligus</Tooltip.Content>
+					<Tooltip.Content>Tandai beberapa todo sekaligus</Tooltip.Content>
 				</Tooltip.Root>
 			</div>
 		{/if}
@@ -810,15 +826,16 @@
 		{#if rows.length === 0}
 			<p class="p-3 text-center text-muted-foreground">
 				{activeCat === null
-					? 'Belum ada tugas'
+					? 'Belum ada todo'
 					: curCat
-						? `Belum ada tugas di "${curCat.name}"`
+						? `Belum ada todo di "${curCat.name}"`
 						: 'Belum ada kategori'}
 			</p>
 		{/if}
 
 		{#each view as t, i (t.id)}
 			{@const isSelected = selectedIds.includes(t.id)}
+			{@const isExpanded = expandedIds.includes(t.id)}
 			{#if activeCat !== null && overIdx === i}
 				<div class="mx-1 mb-1 h-0.5 rounded-full bg-primary"></div>
 			{/if}
@@ -866,7 +883,7 @@
 								</button>
 							{/snippet}
 						</Tooltip.Trigger>
-						<Tooltip.Content>{isSelected ? 'Batalkan pilihan' : 'Pilih todo ini'}</Tooltip.Content>
+						<Tooltip.Content>{isSelected ? 'Batal tandai' : 'Tandai todo ini'}</Tooltip.Content>
 					</Tooltip.Root>
 				{:else if activeCat !== null && tab !== 'deleted' && editId !== t.id}
 					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50" />
@@ -1034,40 +1051,55 @@
 						<Tooltip.Root>
 							<Tooltip.Trigger>
 								{#snippet child({ props })}
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										{...props}
 										class={cn(
-											'min-w-0 cursor-default flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
+											'min-w-0 cursor-pointer flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
 											t.done && 'text-muted-foreground line-through',
 											t.deleted && 'text-muted-foreground'
 										)}
-										ondblclick={() => {
+										onclick={(e) => {
+											if (selectMode) return;
+											toggleExpand(t.id);
+										}}
+										ondblclick={(e) => {
+											e.stopPropagation();
 											if (!selectMode) startEdit(t);
 										}}
 									>
-										<span class="truncate">{t.text}</span>
+										<span class={cn('text-xs select-none transition-all', isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate')}>
+											{t.text}
+										</span>
 										{#if t.description}
-											<button
-												type="button"
-												class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground"
-												onclick={(e) => {
-													e.stopPropagation();
-													if (selectMode) return;
-													skipEditClose = true;
-													startEdit(t);
-													setTimeout(() => {
-														editDescInput?.focus();
-														skipEditClose = false;
-													}, 0);
-												}}
-											>
-												{t.description}
-											</button>
+											{#if isExpanded}
+												<div class="mt-1 rounded-md border bg-muted/40 p-1.5 text-[11px] leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere] whitespace-pre-wrap select-text">
+													{t.description}
+												</div>
+											{:else}
+												<button
+													type="button"
+													class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground"
+													onclick={(e) => {
+														e.stopPropagation();
+														if (selectMode) return;
+														skipEditClose = true;
+														startEdit(t);
+														setTimeout(() => {
+															editDescInput?.focus();
+															skipEditClose = false;
+														}, 0);
+													}}
+												>
+													{t.description}
+												</button>
+											{/if}
 										{/if}
 									</div>
 								{/snippet}
 							</Tooltip.Trigger>
-							<Tooltip.Content>{selectMode ? 'Klik untuk memilih' : 'Klik 2x untuk edit'}</Tooltip.Content>
+							<Tooltip.Content>{selectMode ? 'Klik untuk menandai' : isExpanded ? 'Klik untuk ringkas • Klik 2x edit' : 'Klik untuk buka • Klik 2x edit'}</Tooltip.Content>
 						</Tooltip.Root>
 					</div>
 
@@ -1077,43 +1109,87 @@
 								<Tooltip.Trigger>
 									{#snippet child({ props })}
 										<Button {...props} variant="outline" size="xs" onclick={() => onRestore(t)}>
-											<RotateCcw />
+											<RotateCcw class="size-3.5" />
 										</Button>
 									{/snippet}
 								</Tooltip.Trigger>
 								<Tooltip.Content>Pulihkan</Tooltip.Content>
 							</Tooltip.Root>
-							<Tooltip.Root>
-								<Tooltip.Trigger>
+
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
 									{#snippet child({ props })}
-										<Button {...props} variant="destructive" size="xs" onclick={() => onHardDelete(t)}>
-											<Trash />
+										<Button {...props} variant="ghost" size="xs">
+											<Ellipsis class="size-3.5" />
 										</Button>
 									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Hapus permanen</Tooltip.Content>
-							</Tooltip.Root>
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
+									<DropdownMenu.Item
+										onclick={() => (detailTask = t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Eye class="size-3.5" /> Lihat Detail
+									</DropdownMenu.Item>
+									<DropdownMenu.Separator />
+									<DropdownMenu.Item
+										onclick={() => onHardDelete(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+									>
+										<Trash class="size-3.5" /> Hapus Permanen
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
 						{:else if tab === 'done'}
 							<Tooltip.Root>
 								<Tooltip.Trigger>
 									{#snippet child({ props })}
 										<Button {...props} variant="ghost" size="xs" onclick={() => onToggleDone(t)}>
-											<Undo2 />
+											<Undo2 class="size-3.5" />
 										</Button>
 									{/snippet}
 								</Tooltip.Trigger>
-								<Tooltip.Content>Kembalikan ke Task</Tooltip.Content>
+								<Tooltip.Content>Kembalikan ke Todo</Tooltip.Content>
 							</Tooltip.Root>
-							<Tooltip.Root>
-								<Tooltip.Trigger>
+
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
 									{#snippet child({ props })}
-										<Button {...props} variant="destructive" size="xs" onclick={() => onSoftDelete(t)}>
-											<Trash />
+										<Button {...props} variant="ghost" size="xs">
+											<Ellipsis class="size-3.5" />
 										</Button>
 									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Hapus</Tooltip.Content>
-							</Tooltip.Root>
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
+									<DropdownMenu.Item
+										onclick={() => (detailTask = t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Eye class="size-3.5" /> Lihat Detail
+									</DropdownMenu.Item>
+									{#if onDuplicateTask}
+										<DropdownMenu.Item
+											onclick={() => onDuplicateTask(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+										>
+											<Copy class="size-3.5" /> Duplikat
+										</DropdownMenu.Item>
+									{/if}
+									<DropdownMenu.Item
+										onclick={() => onMoveTaskCategory(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Tags class="size-3.5" /> Ganti Kategori
+									</DropdownMenu.Item>
+									<DropdownMenu.Separator />
+									<DropdownMenu.Item
+										onclick={() => onSoftDelete(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+									>
+										<Trash class="size-3.5" /> Hapus
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
 						{:else}
 							<Tooltip.Root>
 								<Tooltip.Trigger>
@@ -1125,22 +1201,57 @@
 											onclick={() => onToggleDone(t)}
 											class="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400 dark:hover:bg-emerald-900/60"
 										>
-											<Check />
+											<Check class="size-3.5" />
 										</Button>
 									{/snippet}
 								</Tooltip.Trigger>
 								<Tooltip.Content>Tandai selesai</Tooltip.Content>
 							</Tooltip.Root>
-							<Tooltip.Root>
-								<Tooltip.Trigger>
+
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
 									{#snippet child({ props })}
-										<Button {...props} variant="destructive" size="xs" onclick={() => onSoftDelete(t)}>
-											<Trash />
+										<Button {...props} variant="ghost" size="xs">
+											<Ellipsis class="size-3.5" />
 										</Button>
 									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Hapus</Tooltip.Content>
-							</Tooltip.Root>
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
+									<DropdownMenu.Item
+										onclick={() => (detailTask = t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Eye class="size-3.5" /> Lihat Detail
+									</DropdownMenu.Item>
+									<DropdownMenu.Item
+										onclick={() => startEdit(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Pencil class="size-3.5" /> Edit Todo
+									</DropdownMenu.Item>
+									{#if onDuplicateTask}
+										<DropdownMenu.Item
+											onclick={() => onDuplicateTask(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+										>
+											<Copy class="size-3.5" /> Duplikat
+										</DropdownMenu.Item>
+									{/if}
+									<DropdownMenu.Item
+										onclick={() => onMoveTaskCategory(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Tags class="size-3.5" /> Ganti Kategori
+									</DropdownMenu.Item>
+									<DropdownMenu.Separator />
+									<DropdownMenu.Item
+										onclick={() => onSoftDelete(t)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+									>
+										<Trash class="size-3.5" /> Hapus
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
 						{/if}
 					{/if}
 				{/if}
@@ -1151,12 +1262,12 @@
 		{/each}
 	</main>
 
-	<!-- input tugas baru -->
+	<!-- input todo baru -->
 	<footer class="p-2">
 		<InputGroup class="h-auto rounded-xl border border-input/60 bg-card shadow-xs transition-colors overflow-hidden p-1 gap-0.5">
 			<InputGroupInput
 				bind:value={newText}
-				placeholder="Tulis tugas baru..."
+				placeholder="Tulis todo baru..."
 				autocomplete="off"
 				class="h-7 min-h-7 px-2 pt-1.5 pb-0.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-transparent [&]:pt-1.5 [&]:pb-0.5"
 				onkeydown={(e: KeyboardEvent) => {
@@ -1241,7 +1352,7 @@
 							</InputGroupButton>
 						{/snippet}
 					</Tooltip.Trigger>
-					<Tooltip.Content>Kirim tugas</Tooltip.Content>
+					<Tooltip.Content>Kirim todo</Tooltip.Content>
 				</Tooltip.Root>
 			</InputGroupAddon>
 		</InputGroup>
@@ -1251,7 +1362,7 @@
 		<AlertDialog.Content>
 			<AlertDialog.Header>
 				<AlertDialog.Title class="text-sm font-semibold">Edit belum disimpan</AlertDialog.Title>
-				<AlertDialog.Description class="text-xs">Simpan perubahan pada tugas ini?</AlertDialog.Description>
+				<AlertDialog.Description class="text-xs">Simpan perubahan pada todo ini?</AlertDialog.Description>
 			</AlertDialog.Header>
 			<AlertDialog.Footer>
 				<AlertDialog.Action onclick={() => finishEdit(true)}>Simpan</AlertDialog.Action>
@@ -1260,4 +1371,15 @@
 			</AlertDialog.Footer>
 		</AlertDialog.Content>
 	</AlertDialog.Root>
+
+	<TaskDetailDialog
+		bind:task={detailTask}
+		{cats}
+		onDuplicate={onDuplicateTask}
+		onToggleDone={onToggleDone}
+		onDelete={onSoftDelete}
+		onRestore={onRestore}
+		onHardDelete={onHardDelete}
+		onStartEdit={(t) => startEdit(t)}
+	/>
 </div>

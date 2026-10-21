@@ -37,7 +37,7 @@
 				title: 'Pilih folder untuk menyimpan template CSV'
 			});
 			if (typeof selected !== 'string') return;
-			const path = `${selected.replace(/[\\/]+$/, '')}\\template_taskmini.csv`;
+			const path = `${selected.replace(/[\\/]+$/, '')}\\template_checkmat.csv`;
 			const savedPath = await invoke<string>('write_csv_template', { path });
 			toast.success(`Template disimpan ke ${savedPath}`);
 		} catch (e) {

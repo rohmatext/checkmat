@@ -78,7 +78,7 @@
 				</Badge>
 			</div>
 			<p class="text-[11px] text-muted-foreground mt-1 max-w-xs">
-				Minimalist, fast & secure desktop task manager untuk produktivitas harian.
+				Minimalist, fast & secure desktop todo manager untuk produktivitas harian.
 			</p>
 		</div>
 

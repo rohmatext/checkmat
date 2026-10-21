@@ -44,12 +44,12 @@ export const TONE: Record<string, { badge: string; solid: string }> = {
 	pink: { badge: 'bg-pink-50 text-pink-700 border-pink-200 dark:bg-pink-950 dark:text-pink-400 dark:border-pink-900', solid: 'bg-pink-500' }
 };
 
-export const CAT_KEY = 'taskmini.cat';
-export const PROJECT_KEY = 'taskmini.project';
-export const SORT_FIELD_KEY = 'taskmini.sortField';
-export const SORT_DIR_KEY = 'taskmini.sortDir';
-export const THEME_KEY = 'taskmini.theme';
-export const EXPORT_DIR_KEY = 'taskmini.exportDirectory';
+export const CAT_KEY = 'checkmat.cat';
+export const PROJECT_KEY = 'checkmat.project';
+export const SORT_FIELD_KEY = 'checkmat.sortField';
+export const SORT_DIR_KEY = 'checkmat.sortDir';
+export const THEME_KEY = 'checkmat.theme';
+export const EXPORT_DIR_KEY = 'checkmat.exportDirectory';
 
 export function getBadgeCls(color?: string): string {
 	return TONE[color ?? '']?.badge ?? 'bg-muted text-muted-foreground border-border';

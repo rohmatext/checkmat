@@ -6,7 +6,7 @@
     <meta name="text-scale" content="scale" />
     <script>
       (() => {
-        const t = localStorage.getItem("taskmini.theme");
+        const t = localStorage.getItem("checkmat.theme") || localStorage.getItem("taskmini.theme");
         if (
           t === "dark" ||
           (!t && matchMedia("(prefers-color-scheme: dark)").matches)

@@ -5,10 +5,10 @@ Aplikasi desktop to-do list sederhana yang dibuat berdasarkan kebutuhan pribadi 
 ## Fitur
 
 - Kunci PIN (4-6 digit)
-- Multi-space dan pengelolaan kategori tugas
-- 3 tab status: Task, Selesai, Dihapus
-- Drag & drop untuk mengubah urutan tugas dan kategori
-- Berbagai opsi pengurutan tugas (posisi, kategori, waktu, nama)
+- Multi-space dan pengelolaan kategori todo
+- 3 tab status: Todo, Selesai, Dihapus
+- Drag & drop untuk mengubah urutan todo dan kategori
+- Berbagai opsi pengurutan todo (posisi, kategori, waktu, nama)
 - Single instance (hanya satu aplikasi yang berjalan bersamaan)
 - Tema gelap dan terang
 - Export dan import CSV
