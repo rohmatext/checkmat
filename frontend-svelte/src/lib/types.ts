@@ -27,7 +27,7 @@ export type Project = {
 };
 
 export type Tab = 'active' | 'done' | 'deleted';
-export type Page = 'home' | 'tasks' | 'categories';
+export type Page = 'home' | 'tasks' | 'categories' | 'about';
 export type SortField = 'cat_pos' | 'pos' | 'category' | 'id' | 'text';
 export type SortDir = 'asc' | 'desc';
 

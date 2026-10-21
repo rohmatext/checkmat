@@ -3,6 +3,7 @@
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { getSolidCls, type Category, type Task } from '#lib/types.js';
 	import { cn } from '#lib/utils.js';
 
@@ -92,14 +93,21 @@
 				class="h-7 pl-7 pr-6 text-xs"
 			/>
 			{#if query}
-				<button
-					type="button"
-					onclick={() => (query = '')}
-					class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
-					title="Hapus pencarian"
-				>
-					<X class="size-3" />
-				</button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								type="button"
+								onclick={() => (query = '')}
+								class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+							>
+								<X class="size-3" />
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Hapus pencarian</Tooltip.Content>
+				</Tooltip.Root>
 			{/if}
 		</div>
 
@@ -109,14 +117,11 @@
 				{@const countAll = countFor(null)}
 				<button
 					type="button"
-					class={cn(
-						'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent cursor-pointer',
-						value === null && 'bg-accent/80 font-bold text-accent-foreground'
-					)}
+					class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
 					onclick={() => handlePick(null)}
 				>
 					<span class="flex items-center gap-2 truncate">
-						<span class="size-2 rounded-full bg-primary/60 shrink-0"></span>
+						<span class="size-2 rounded-full bg-muted-foreground/60 shrink-0"></span>
 						<span class="truncate">{allLabel}</span>
 					</span>
 					<span class="flex items-center gap-1.5 shrink-0 text-muted-foreground">
@@ -124,7 +129,7 @@
 							<span class="text-[10px]">{countAll}</span>
 						{/if}
 						{#if value === null}
-							<Check class="size-3.5 text-primary stroke-[2.5]" />
+							<Check class="size-3.5 text-foreground stroke-2" />
 						{/if}
 					</span>
 				</button>
@@ -135,10 +140,7 @@
 				{@const isSelected = value === c.id}
 				<button
 					type="button"
-					class={cn(
-						'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent cursor-pointer',
-						isSelected && 'bg-accent/80 font-bold text-accent-foreground'
-					)}
+					class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
 					onclick={() => handlePick(c.id)}
 				>
 					<span class="flex items-center gap-2 truncate min-w-0">
@@ -150,7 +152,7 @@
 							<span class="text-[10px]">{countCat}</span>
 						{/if}
 						{#if isSelected}
-							<Check class="size-3.5 text-primary stroke-[2.5]" />
+							<Check class="size-3.5 text-foreground stroke-2" />
 						{/if}
 					</span>
 				</button>
@@ -168,7 +170,7 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="h-7 w-full justify-start gap-1.5 px-2 text-xs text-muted-foreground hover:text-primary"
+					class="h-7 w-full justify-start gap-1.5 px-2 text-xs text-muted-foreground hover:text-accent-foreground"
 					onclick={() => {
 						open = false;
 						onOpenAddCategory();

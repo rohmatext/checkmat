@@ -65,7 +65,7 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="max-w-sm gap-4 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>Export CSV</Dialog.Title>
+			<Dialog.Title class="text-sm font-semibold">Export CSV</Dialog.Title>
 			<Dialog.Description class="text-xs">
 				Simpan seluruh todo ke file CSV beserta status dan waktunya.
 			</Dialog.Description>

@@ -103,12 +103,19 @@
 <div class="flex h-full flex-col p-3">
 	<header class="flex items-center justify-between gap-2 pb-3">
 		<div class="flex items-center gap-2 min-w-0">
-			<Button variant="outline" size="icon-sm" title="Kembali ke tugas" onclick={onBack}>
-				<ArrowLeft />
-			</Button>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="icon-sm" onclick={onBack}>
+							<ArrowLeft />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Kembali ke tugas</Tooltip.Content>
+			</Tooltip.Root>
 			<div class="min-w-0">
-				<h1 class="text-base font-bold truncate">Kelola Kategori</h1>
-				<p class="text-xs text-muted-foreground truncate">{activeProjectItem?.name ?? 'Space'}</p>
+				<h1 class="text-sm font-bold truncate">Kelola Kategori</h1>
+				<p class="text-[11px] text-muted-foreground truncate">{activeProjectItem?.name ?? 'Space'}</p>
 			</div>
 		</div>
 		<Button size="sm" onclick={onOpenAddCategory}>
@@ -122,7 +129,7 @@
 		ondrop={onDrop}
 	>
 		{#if cats.length === 0}
-			<div class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+			<div class="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
 				Belum ada kategori. Buat kategori untuk mulai mengelompokkan todo.
 			</div>
 		{/if}
@@ -144,35 +151,56 @@
 				)}
 			>
 				<!-- Grip Handle Drag & Drop -->
-				<div
-					class="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground touch-none select-none p-0.5 -ml-0.5"
-					title="Geser posisi (Drag & Drop)"
-				>
-					<GripVertical class="size-4" />
-				</div>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<div
+								{...props}
+								class="cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground touch-none select-none p-0.5 -ml-0.5"
+							>
+								<GripVertical class="size-4" />
+							</div>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Geser posisi (Drag & Drop)</Tooltip.Content>
+				</Tooltip.Root>
 
 				<!-- Tombol panah urutan naik / turun alternatif -->
 				<div class="flex flex-col gap-0.5">
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						class="h-4 w-4 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
-						disabled={idx === 0}
-						onclick={() => onMoveCategory(idx, -1)}
-						title="Geser ke atas"
-					>
-						<ArrowUp class="size-3" />
-					</Button>
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						class="h-4 w-4 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
-						disabled={idx === cats.length - 1}
-						onclick={() => onMoveCategory(idx, 1)}
-						title="Geser ke bawah"
-					>
-						<ArrowDown class="size-3" />
-					</Button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="ghost"
+									size="icon-xs"
+									class="h-4 w-4 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
+									disabled={idx === 0}
+									onclick={() => onMoveCategory(idx, -1)}
+								>
+									<ArrowUp class="size-3" />
+								</Button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Geser ke atas</Tooltip.Content>
+					</Tooltip.Root>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="ghost"
+									size="icon-xs"
+									class="h-4 w-4 p-0 text-muted-foreground hover:text-foreground disabled:opacity-30"
+									disabled={idx === cats.length - 1}
+									onclick={() => onMoveCategory(idx, 1)}
+								>
+									<ArrowDown class="size-3" />
+								</Button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Geser ke bawah</Tooltip.Content>
+					</Tooltip.Root>
 				</div>
 
 				<!-- Badge & nama kategori -->
@@ -190,16 +218,23 @@
 					<!-- Palet warna cepat -->
 					<div class="mt-2 flex items-center gap-1">
 						{#each PALETTE as tone}
-							<button
-								type="button"
-								class={cn(
-									'size-3.5 rounded-full transition-transform cursor-pointer',
-									getSolidCls(tone),
-									c.color === tone ? 'ring-2 ring-primary ring-offset-1 scale-110' : 'opacity-60 hover:opacity-100 hover:scale-105'
-								)}
-								onclick={() => onSetColorQuick(c, tone)}
-								title={`Ubah warna ke ${tone}`}
-							></button>
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									{#snippet child({ props })}
+										<button
+											{...props}
+											type="button"
+											class={cn(
+												'size-3.5 rounded-full transition-transform cursor-pointer',
+												getSolidCls(tone),
+												c.color === tone ? 'ring-2 ring-primary ring-offset-1 scale-110' : 'opacity-60 hover:opacity-100 hover:scale-105'
+											)}
+											onclick={() => onSetColorQuick(c, tone)}
+										></button>
+									{/snippet}
+								</Tooltip.Trigger>
+								<Tooltip.Content>Ubah warna ke {tone}</Tooltip.Content>
+							</Tooltip.Root>
 						{/each}
 					</div>
 				</div>
@@ -213,7 +248,6 @@
 									{...props}
 									variant="outline"
 									size="icon-sm"
-									title="Edit nama kategori"
 									onclick={() => onOpenRenameCategory(c)}
 								>
 									<Pencil />
@@ -231,7 +265,6 @@
 									variant="outline"
 									size="icon-sm"
 									disabled={cats.length <= 1}
-									title="Hapus kategori"
 									class="hover:border-destructive hover:bg-destructive/10 hover:text-destructive"
 									onclick={() => onDeleteCategory(c)}
 								>

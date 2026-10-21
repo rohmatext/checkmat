@@ -88,7 +88,7 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="max-w-xs gap-4 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>Import CSV</Dialog.Title>
+			<Dialog.Title class="text-sm font-semibold">Import CSV</Dialog.Title>
 			<Dialog.Description class="text-xs">
 				Format: id,text,project,category,done,deleted,created_at,done_at,deleted_at. Kolom text wajib.
 			</Dialog.Description>

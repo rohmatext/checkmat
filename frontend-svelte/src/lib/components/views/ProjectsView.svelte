@@ -15,7 +15,8 @@
 		RotateCcw,
 		Archive,
 		ArchiveRestore,
-		GripVertical
+		GripVertical,
+		Info
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
@@ -34,7 +35,8 @@
 		onSetProjectStatus,
 		onReorderProjects,
 		onLockApp,
-		onToggleTheme
+		onToggleTheme,
+		onOpenAbout
 	}: {
 		projects: Project[];
 		dark: boolean;
@@ -45,6 +47,7 @@
 		onReorderProjects?: (ids: number[]) => Promise<void>;
 		onLockApp: () => void;
 		onToggleTheme: () => void;
+		onOpenAbout?: () => void;
 	} = $props();
 
 	let searchQuery = $state('');
@@ -163,8 +166,8 @@
 	<!-- Header -->
 	<header class="flex items-center justify-between gap-2 pb-2.5">
 		<div class="min-w-0">
-			<h1 class="text-lg font-bold">Space</h1>
-			<p class="text-xs text-muted-foreground">Pilih space untuk membuka daftar tugas.</p>
+			<h1 class="text-sm font-bold tracking-tight">Space</h1>
+			<p class="text-[11px] text-muted-foreground">Pilih space untuk membuka daftar tugas.</p>
 		</div>
 		<Button size="sm" onclick={() => onOpenProjectDialog('add')}>
 			<Plus /> Space
@@ -182,14 +185,21 @@
 				class="h-8 pl-8 pr-7 text-xs"
 			/>
 			{#if searchQuery}
-				<button
-					type="button"
-					onclick={() => (searchQuery = '')}
-					class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
-					title="Hapus pencarian"
-				>
-					<X class="size-3.5" />
-				</button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								type="button"
+								onclick={() => (searchQuery = '')}
+								class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+							>
+								<X class="size-3.5" />
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Hapus pencarian</Tooltip.Content>
+				</Tooltip.Root>
 			{/if}
 		</div>
 
@@ -230,11 +240,11 @@
 		ondrop={isReorderable ? onDrop : undefined}
 	>
 		{#if projects.length === 0}
-			<div class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+			<div class="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
 				Belum ada space. Buat space pertama untuk mulai mencatat todo.
 			</div>
 		{:else if filteredProjects.length === 0}
-			<div class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground space-y-2">
+			<div class="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground space-y-2">
 				<p>Tidak ada space yang cocok.</p>
 				<Button
 					variant="outline"
@@ -269,19 +279,28 @@
 				)}
 			>
 				{#if projects.length > 1}
-					<div
-						class={cn(
-							'touch-none select-none p-0.5 -ml-0.5 shrink-0 transition-colors',
-							isReorderable
-								? 'cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground'
-								: 'cursor-not-allowed text-muted-foreground/20'
-						)}
-						title={isReorderable
-							? 'Geser posisi space (Drag & Drop)'
-							: 'Urutan hanya dapat diatur saat menampilkan Semua status tanpa pencarian'}
-					>
-						<GripVertical class="size-4" />
-					</div>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<div
+									{...props}
+									class={cn(
+										'touch-none select-none p-0.5 -ml-0.5 shrink-0 transition-colors',
+										isReorderable
+											? 'cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-foreground'
+											: 'cursor-not-allowed text-muted-foreground/20'
+									)}
+								>
+									<GripVertical class="size-4" />
+								</div>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>
+							{isReorderable
+								? 'Geser posisi space (Drag & Drop)'
+								: 'Urutan hanya dapat diatur saat menampilkan Semua status tanpa pencarian'}
+						</Tooltip.Content>
+					</Tooltip.Root>
 				{/if}
 				<button
 					type="button"
@@ -300,7 +319,7 @@
 						<span class="flex items-center gap-1.5">
 							<span
 								class={cn(
-									'truncate text-sm font-semibold',
+									'truncate text-xs font-semibold',
 									isCompleted && 'line-through text-muted-foreground',
 									isArchived && 'text-muted-foreground'
 								)}
@@ -329,25 +348,32 @@
 
 				<!-- Dropdown Menu Aksi -->
 				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant="ghost"
-								size="icon-sm"
-								title="Opsi space"
-								class="text-muted-foreground hover:text-foreground shrink-0"
-							>
-								<EllipsisVertical class="size-4" />
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end" class="w-48">
-						<DropdownMenu.Item onclick={() => onPickProject(project.id)} class="cursor-pointer">
-							<FolderOpen class="mr-2 size-4 text-primary" /> Buka Space
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props: tooltipProps })}
+								<DropdownMenu.Trigger>
+									{#snippet child({ props: triggerProps })}
+										<Button
+											{...tooltipProps}
+											{...triggerProps}
+											variant="ghost"
+											size="icon-sm"
+											class="text-muted-foreground hover:text-foreground shrink-0"
+										>
+											<EllipsisVertical class="size-4" />
+										</Button>
+									{/snippet}
+								</DropdownMenu.Trigger>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Opsi space</Tooltip.Content>
+					</Tooltip.Root>
+					<DropdownMenu.Content align="end" class="min-w-40 w-40 rounded-lg p-1 shadow-lg border border-border">
+						<DropdownMenu.Item onclick={() => onPickProject(project.id)} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<FolderOpen class="size-3.5 text-primary" /> Buka Space
 						</DropdownMenu.Item>
-						<DropdownMenu.Item onclick={() => onOpenProjectDialog('edit', project)} class="cursor-pointer">
-							<Pencil class="mr-2 size-4" /> Edit Space
+						<DropdownMenu.Item onclick={() => onOpenProjectDialog('edit', project)} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<Pencil class="size-3.5" /> Edit Space
 						</DropdownMenu.Item>
 
 						{#if onSetProjectStatus}
@@ -355,32 +381,32 @@
 							{#if !isCompleted}
 								<DropdownMenu.Item
 									onclick={() => onSetProjectStatus(project.id, 'completed')}
-									class="cursor-pointer text-emerald-600 dark:text-emerald-400"
+									class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-emerald-600 dark:text-emerald-400"
 								>
-									<CheckCircle2 class="mr-2 size-4" /> Tandai Selesai
+									<CheckCircle2 class="size-3.5" /> Tandai Selesai
 								</DropdownMenu.Item>
 							{:else}
 								<DropdownMenu.Item
 									onclick={() => onSetProjectStatus(project.id, 'active')}
-									class="cursor-pointer"
+									class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 								>
-									<RotateCcw class="mr-2 size-4 text-blue-500" /> Aktifkan Kembali
+									<RotateCcw class="size-3.5 text-blue-500" /> Aktifkan Kembali
 								</DropdownMenu.Item>
 							{/if}
 
 							{#if !isArchived}
 								<DropdownMenu.Item
 									onclick={() => onSetProjectStatus(project.id, 'archived')}
-									class="cursor-pointer text-muted-foreground"
+									class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-muted-foreground"
 								>
-									<Archive class="mr-2 size-4" /> Arsipkan
+									<Archive class="size-3.5" /> Arsipkan
 								</DropdownMenu.Item>
 							{:else}
 								<DropdownMenu.Item
 									onclick={() => onSetProjectStatus(project.id, 'active')}
-									class="cursor-pointer"
+									class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 								>
-									<ArchiveRestore class="mr-2 size-4 text-blue-500" /> Buka dari Arsip
+									<ArchiveRestore class="size-3.5 text-blue-500" /> Buka dari Arsip
 								</DropdownMenu.Item>
 							{/if}
 						{/if}
@@ -389,9 +415,9 @@
 						<DropdownMenu.Item
 							disabled={projects.length <= 1}
 							onclick={() => onDeleteProject(project)}
-							class="text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+							class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
 						>
-							<Trash class="mr-2 size-4" /> Hapus Space
+							<Trash class="size-3.5" /> Hapus Space
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
@@ -400,11 +426,26 @@
 	</main>
 
 	<!-- Footer -->
-	<footer class="flex justify-end gap-1.5 pt-2">
+	<footer class="flex items-center justify-between pt-2">
+		{#if onOpenAbout}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-foreground" onclick={onOpenAbout}>
+							<Info class="size-4" />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Tentang aplikasi</Tooltip.Content>
+			</Tooltip.Root>
+		{:else}
+			<div></div>
+		{/if}
+		<div class="flex items-center gap-1.5">
 		<Tooltip.Root>
 			<Tooltip.Trigger>
 				{#snippet child({ props })}
-					<Button {...props} variant="outline" size="icon-sm" title="Kunci aplikasi" onclick={onLockApp}>
+					<Button {...props} variant="outline" size="icon-sm" onclick={onLockApp}>
 						<Lock />
 					</Button>
 				{/snippet}
@@ -421,5 +462,6 @@
 			</Tooltip.Trigger>
 			<Tooltip.Content>{dark ? 'Mode terang' : 'Mode gelap'}</Tooltip.Content>
 		</Tooltip.Root>
+		</div>
 	</footer>
 </div>

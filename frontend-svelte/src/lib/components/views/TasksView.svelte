@@ -21,7 +21,8 @@
 		X,
 		Ellipsis,
 		EllipsisVertical,
-		ListChecks
+		ListChecks,
+		Info
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import {
@@ -64,6 +65,7 @@
 		onAddTask,
 		onUpdateTask,
 		onToggleDone,
+		onSetDoneBatch,
 		onSoftDelete,
 		onSoftDeleteBatch,
 		onRestore,
@@ -71,7 +73,8 @@
 		onHardDelete,
 		onHardDeleteBatch,
 		onMoveTaskCategory,
-		onReorderTasks
+		onReorderTasks,
+		onOpenAbout
 	}: {
 		tasks: Task[];
 		cats: Category[];
@@ -95,14 +98,16 @@
 		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onToggleDone: (t: Task) => void;
+		onSetDoneBatch?: (ids: number[], done: boolean, onSuccess?: () => void) => void;
 		onSoftDelete: (t: Task) => void;
-		onSoftDeleteBatch?: (ids: number[]) => void;
+		onSoftDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
 		onRestore: (t: Task) => Promise<void>;
-		onRestoreBatch?: (ids: number[]) => Promise<void>;
+		onRestoreBatch?: (ids: number[], onSuccess?: () => void) => Promise<void>;
 		onHardDelete: (t: Task) => void;
-		onHardDeleteBatch?: (ids: number[]) => void;
+		onHardDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
 		onMoveTaskCategory: (t: Task) => void;
 		onReorderTasks: (ids: number[]) => Promise<void>;
+		onOpenAbout?: () => void;
 	} = $props();
 
 	let newText = $state('');
@@ -255,23 +260,53 @@
 		const ids = [...selectedIds];
 		if (tab === 'deleted') {
 			if (onHardDeleteBatch) {
-				onHardDeleteBatch(ids);
+				onHardDeleteBatch(ids, () => {
+					selectedIds = [];
+				});
 			}
 		} else {
 			if (onSoftDeleteBatch) {
-				onSoftDeleteBatch(ids);
+				onSoftDeleteBatch(ids, () => {
+					selectedIds = [];
+				});
 			}
 		}
-		selectedIds = [];
 	}
 
 	async function handleBatchRestoreAction() {
 		if (selectedIds.length === 0) return;
 		const ids = [...selectedIds];
 		if (onRestoreBatch) {
-			await onRestoreBatch(ids);
+			await onRestoreBatch(ids, () => {
+				selectedIds = [];
+			});
 		}
-		selectedIds = [];
+	}
+
+	function handleBatchSetDoneAction() {
+		if (selectedIds.length === 0) return;
+		const ids = [...selectedIds];
+		if (onSetDoneBatch) {
+			onSetDoneBatch(ids, true, () => {
+				selectedIds = [];
+			});
+		}
+	}
+
+	function handleBatchSetUndoneAction() {
+		if (selectedIds.length === 0) return;
+		const ids = [...selectedIds];
+		if (onSetDoneBatch) {
+			onSetDoneBatch(ids, false, () => {
+				selectedIds = [];
+			});
+		}
+	}
+
+	function resizeTextarea(el: HTMLTextAreaElement | null) {
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${el.scrollHeight}px`;
 	}
 
 	function startEdit(t: Task) {
@@ -282,6 +317,11 @@
 		editCat = t.category_id;
 		showEditDesc = !!t.description;
 		skipEditClose = false;
+		if (showEditDesc) {
+			setTimeout(() => {
+				resizeTextarea(editDescInput);
+			}, 0);
+		}
 	}
 
 	async function finishEdit(save: boolean) {
@@ -310,6 +350,15 @@
 	const onEditKey = (e: KeyboardEvent) => {
 		if (e.key === 'Enter') finishEdit(true);
 		else if (e.key === 'Escape') finishEdit(false);
+	};
+
+	const onEditDescKey = (e: KeyboardEvent) => {
+		if (e.key === 'Escape') {
+			finishEdit(false);
+		} else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			finishEdit(true);
+		}
 	};
 
 	async function submitAdd() {
@@ -408,21 +457,35 @@
 	<!-- project title and navigation + app utilities -->
 	<div class="flex items-center justify-between gap-1 px-2 pt-2">
 		<div class="flex min-w-0 flex-1 items-center gap-1">
-			<Button variant="outline" size="icon-sm" title="Kembali ke space" onclick={onBackToProjects}>
-				<ArrowLeft />
-			</Button>
-			<button
-				type="button"
-				class="min-w-0 flex-1 truncate px-2 text-left text-sm font-bold hover:text-primary cursor-pointer"
-				title="Pilih space lain"
-				onclick={onOpenProjectPicker}
-			>
-				{activeProjectItem?.name ?? 'Pilih space'}
-			</button>
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-foreground shrink-0" onclick={onOpenProjectPicker} title="Pilih space">
+						<Button {...props} variant="outline" size="icon-sm" onclick={onBackToProjects}>
+							<ArrowLeft />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Kembali ke space</Tooltip.Content>
+			</Tooltip.Root>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<button
+							{...props}
+							type="button"
+							class="min-w-0 flex-1 truncate px-2 text-left text-sm font-bold hover:text-primary cursor-pointer"
+							onclick={onOpenProjectPicker}
+						>
+							{activeProjectItem?.name ?? 'Pilih space'}
+						</button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Ganti space</Tooltip.Content>
+			</Tooltip.Root>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="ghost" size="icon-sm" class="text-muted-foreground hover:text-foreground shrink-0" onclick={onOpenProjectPicker}>
 							<FolderOpen />
 						</Button>
 					{/snippet}
@@ -436,7 +499,7 @@
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="outline" size="icon-sm" title={dark ? 'Mode terang' : 'Mode gelap'} onclick={onToggleTheme}>
+						<Button {...props} variant="outline" size="icon-sm" onclick={onToggleTheme}>
 							{#if dark}<Sun />{:else}<Moon />{/if}
 						</Button>
 					{/snippet}
@@ -446,7 +509,7 @@
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="outline" size="icon-sm" title="Kunci aplikasi" onclick={onLockApp}>
+						<Button {...props} variant="outline" size="icon-sm" onclick={onLockApp}>
 							<Lock />
 						</Button>
 					{/snippet}
@@ -454,24 +517,37 @@
 				<Tooltip.Content>Kunci aplikasi</Tooltip.Content>
 			</Tooltip.Root>
 			<DropdownMenu.Root>
-				<DropdownMenu.Trigger>
-					{#snippet child({ props })}
-						<Button {...props} variant="outline" size="icon-sm" title="Menu opsi">
-							<EllipsisVertical />
-						</Button>
-					{/snippet}
-				</DropdownMenu.Trigger>
-				<DropdownMenu.Content align="end" class="w-44">
-					<DropdownMenu.Item onclick={onOpenImportDialog} class="cursor-pointer">
-						<Upload class="mr-2 size-4" /> Import CSV
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props: tooltipProps })}
+							<DropdownMenu.Trigger>
+								{#snippet child({ props: triggerProps })}
+									<Button {...tooltipProps} {...triggerProps} variant="outline" size="icon-sm">
+										<EllipsisVertical />
+									</Button>
+								{/snippet}
+							</DropdownMenu.Trigger>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Menu opsi</Tooltip.Content>
+				</Tooltip.Root>
+				<DropdownMenu.Content align="end" class="min-w-40 w-40 rounded-lg p-1 shadow-lg border border-border">
+					<DropdownMenu.Item onclick={onOpenImportDialog} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+						<Upload class="size-3.5" /> Import CSV
 					</DropdownMenu.Item>
-					<DropdownMenu.Item onclick={onOpenExportDialog} class="cursor-pointer">
-						<Download class="mr-2 size-4" /> Export CSV
+					<DropdownMenu.Item onclick={onOpenExportDialog} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+						<Download class="size-3.5" /> Export CSV
 					</DropdownMenu.Item>
 					<DropdownMenu.Separator />
-					<DropdownMenu.Item onclick={onOpenCategoriesView} class="cursor-pointer">
-						<Tags class="mr-2 size-4" /> Kelola Kategori
+					<DropdownMenu.Item onclick={onOpenCategoriesView} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+						<Tags class="size-3.5" /> Kelola Kategori
 					</DropdownMenu.Item>
+					{#if onOpenAbout}
+						<DropdownMenu.Separator />
+						<DropdownMenu.Item onclick={onOpenAbout} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<Info class="size-3.5" /> Tentang Aplikasi
+						</DropdownMenu.Item>
+					{/if}
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
 		</div>
@@ -495,7 +571,7 @@
 			<Tooltip.Root>
 				<Tooltip.Trigger>
 					{#snippet child({ props })}
-						<Button {...props} variant="outline" size="icon-sm" title="Kelola kategori" onclick={onOpenCategoriesView}>
+						<Button {...props} variant="outline" size="icon-sm" onclick={onOpenCategoriesView}>
 							<Tags />
 						</Button>
 					{/snippet}
@@ -504,23 +580,30 @@
 			</Tooltip.Root>
 			{#if activeCat !== null}
 				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button {...props} variant="outline" size="icon-sm" title="Opsi kategori">
-								<Ellipsis />
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end" class="w-44">
-						<DropdownMenu.Item onclick={onOpenRenameCategory} class="cursor-pointer">
-							<Pencil class="mr-2 size-4" /> Edit Kategori
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props: tooltipProps })}
+								<DropdownMenu.Trigger>
+									{#snippet child({ props: triggerProps })}
+										<Button {...tooltipProps} {...triggerProps} variant="outline" size="icon-sm">
+											<Ellipsis />
+										</Button>
+									{/snippet}
+								</DropdownMenu.Trigger>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Opsi kategori</Tooltip.Content>
+					</Tooltip.Root>
+					<DropdownMenu.Content align="end" class="min-w-36 w-36 rounded-lg p-1 shadow-lg border border-border">
+						<DropdownMenu.Item onclick={onOpenRenameCategory} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<Pencil class="size-3.5" /> Edit Kategori
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />
 						<DropdownMenu.Item
 							onclick={onDeleteCategory}
-							class="text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+							class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
 						>
-							<Trash class="mr-2 size-4" /> Hapus Kategori
+							<Trash class="size-3.5" /> Hapus Kategori
 						</DropdownMenu.Item>
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
@@ -529,7 +612,16 @@
 	</div>
 
 	<!-- tabs -->
-	<Tabs.Root value={tab} onValueChange={(v) => (tab = v as Tab)} class="gap-0 px-2 pt-2">
+	<Tabs.Root
+		value={tab}
+		onValueChange={(v) => {
+			if (v) {
+				tab = v as Tab;
+				selectedIds = [];
+			}
+		}}
+		class="gap-0 px-2 pt-2"
+	>
 		<Tabs.List class="grid w-full grid-cols-3 gap-1 rounded-t-lg rounded-b-none bg-transparent p-0">
 			{#each tabs as { k, label } (k)}
 				{@const n = count(k)}
@@ -559,21 +651,28 @@
 		{#if selectMode}
 			<div class="mb-2 flex items-center justify-between gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-xs animate-in fade-in-50">
 				<div class="flex items-center gap-2 min-w-0">
-					<button
-						type="button"
-						class={cn(
-							'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
-							allRowsSelected
-								? 'border-primary bg-primary text-primary-foreground'
-								: 'border-muted-foreground/40 hover:border-foreground bg-background'
-						)}
-						onclick={toggleSelectAll}
-						title={allRowsSelected ? 'Batal pilih semua' : 'Pilih semua'}
-					>
-						{#if allRowsSelected}
-							<Check class="size-3 stroke-[3]" />
-						{/if}
-					</button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									type="button"
+									class={cn(
+										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
+										allRowsSelected
+											? 'border-primary bg-primary text-primary-foreground'
+											: 'border-muted-foreground/40 hover:border-foreground bg-background'
+									)}
+									onclick={toggleSelectAll}
+								>
+									{#if allRowsSelected}
+										<Check class="size-3 stroke-[3]" />
+									{/if}
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>{allRowsSelected ? 'Batal pilih semua' : 'Pilih semua'}</Tooltip.Content>
+					</Tooltip.Root>
 					<span class="text-[11px] font-semibold truncate">
 						{selectedIds.length} dipilih
 					</span>
@@ -587,7 +686,6 @@
 								size="xs"
 								class="h-6 px-2 text-[11px] gap-1"
 								onclick={handleBatchRestoreAction}
-								title="Pulihkan yang dipilih"
 							>
 								<RotateCcw class="size-3" /> Pulihkan
 							</Button>
@@ -596,17 +694,40 @@
 								size="xs"
 								class="h-6 px-2 text-[11px] gap-1"
 								onclick={handleBatchDeleteAction}
-								title="Hapus permanen yang dipilih"
 							>
 								<Trash class="size-3" /> Hapus
 							</Button>
-						{:else}
+						{:else if tab === 'active'}
+							<Button
+								variant="outline"
+								size="xs"
+								class="h-6 px-2 text-[11px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
+								onclick={handleBatchSetDoneAction}
+							>
+								<Check class="size-3" /> Selesai
+							</Button>
 							<Button
 								variant="destructive"
 								size="xs"
 								class="h-6 px-2 text-[11px] gap-1"
 								onclick={handleBatchDeleteAction}
-								title="Hapus yang dipilih"
+							>
+								<Trash class="size-3" /> Hapus
+							</Button>
+						{:else if tab === 'done'}
+							<Button
+								variant="outline"
+								size="xs"
+								class="h-6 px-2 text-[11px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
+								onclick={handleBatchSetUndoneAction}
+							>
+								<Undo2 class="size-3" /> Ke Tugas
+							</Button>
+							<Button
+								variant="destructive"
+								size="xs"
+								class="h-6 px-2 text-[11px] gap-1"
+								onclick={handleBatchDeleteAction}
 							>
 								<Trash class="size-3" /> Hapus
 							</Button>
@@ -625,9 +746,9 @@
 		{:else if rows.length > 0}
 			<div class="mb-2 flex items-center justify-between gap-1">
 				{#if activeCat === null}
-					<div class="flex items-center gap-1 rounded-md border border-input/40 bg-muted/30 px-2 py-0.5 text-xs">
-						<span class="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
-							<ArrowUpDown class="size-3 text-primary" />
+					<div class="flex items-center gap-1 rounded-lg bg-muted/40 p-0.5 text-xs">
+						<span class="flex items-center gap-1 pl-1.5 pr-1 text-[11px] font-medium text-muted-foreground select-none">
+							<ArrowUpDown class="size-3 text-muted-foreground" />
 							Urutan:
 						</span>
 						<Select.Root
@@ -637,7 +758,7 @@
 						>
 							<Select.Trigger
 								size="sm"
-								class="h-6 w-fit gap-1 rounded-md border border-input/60 bg-background/50 px-2 text-[11px] font-medium shadow-none hover:bg-muted"
+								class="!h-6 w-fit gap-1 rounded-md border-0 bg-background/80 shadow-xs !px-1.5 !text-[11px] font-medium hover:bg-background [&_svg]:!size-3 cursor-pointer"
 							>
 								<Select.Value>
 									{#snippet children()}
@@ -645,27 +766,34 @@
 									{/snippet}
 								</Select.Value>
 							</Select.Trigger>
-							<Select.Content>
-								<Select.Item value="cat_pos" label="Kategori + Todo Posisi" />
-								<Select.Item value="pos" label="Todo Posisi" />
-								<Select.Item value="category" label="Nama Kategori" />
-								<Select.Item value="id" label="Waktu dibuat" />
-								<Select.Item value="text" label="Nama tugas" />
+							<Select.Content class="min-w-44 rounded-lg p-1 shadow-lg border border-border">
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="cat_pos" label="Kategori + Todo Posisi" />
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="pos" label="Todo Posisi" />
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="category" label="Nama Kategori" />
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="id" label="Waktu dibuat" />
+								<Select.Item class="py-1 pl-2 pr-6 text-xs rounded-md gap-1.5 cursor-pointer [&_svg]:size-3.5" value="text" label="Nama tugas" />
 							</Select.Content>
 						</Select.Root>
-						<Button
-							variant="outline"
-							size="icon-xs"
-							class="size-6 border-input/60 bg-background/50 hover:bg-muted"
-							title={sortDir === 'asc' ? 'Urutan Naik (A-Z / Lama ke Baru)' : 'Urutan Turun (Z-A / Baru ke Lama)'}
-							onclick={toggleSortDir}
-						>
-							{#if sortDir === 'asc'}
-								<ArrowUp class="size-3 text-primary" />
-							{:else}
-								<ArrowDown class="size-3 text-primary" />
-							{/if}
-						</Button>
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<Button
+										{...props}
+										variant="ghost"
+										size="icon-xs"
+										class="!size-6 rounded-md hover:bg-background/80 text-muted-foreground hover:text-foreground"
+										onclick={toggleSortDir}
+									>
+										{#if sortDir === 'asc'}
+											<ArrowUp class="size-3" />
+										{:else}
+											<ArrowDown class="size-3" />
+										{/if}
+									</Button>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content>{sortDir === 'asc' ? 'Urutan Naik (A-Z / Lama ke Baru)' : 'Urutan Turun (Z-A / Baru ke Lama)'}</Tooltip.Content>
+						</Tooltip.Root>
 					</div>
 				{:else}
 					<div class="text-[11px] text-muted-foreground px-1">
@@ -682,7 +810,6 @@
 								size="xs"
 								class="h-6 gap-1 px-2 text-[11px] text-muted-foreground hover:text-foreground"
 								onclick={() => (selectMode = true)}
-								title="Tandai beberapa todo untuk hapus batch"
 							>
 								<ListChecks class="size-3.5 text-primary" />
 								<span>Pilih</span>
@@ -723,39 +850,46 @@
 				}}
 				class={cn(
 					'mb-1.5 flex items-center gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
-					activeCat !== null && tab !== 'deleted' && !selectMode ? 'cursor-grab active:cursor-grabbing' : '',
+					activeCat !== null && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
 					selectMode ? 'cursor-pointer hover:border-primary/60' : '',
 					isSelected && 'border-primary ring-1 ring-primary/40 bg-primary/5 dark:bg-primary/10',
 					dragId === t.id && 'opacity-35'
 				)}
 			>
 				{#if selectMode}
-					<button
-						type="button"
-						class={cn(
-							'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
-							isSelected
-								? 'border-primary bg-primary text-primary-foreground'
-								: 'border-muted-foreground/40 hover:border-foreground bg-background'
-						)}
-						onclick={(e) => {
-							e.stopPropagation();
-							toggleSelect(t.id);
-						}}
-						title={isSelected ? 'Batalkan pilihan' : 'Pilih todo ini'}
-					>
-						{#if isSelected}
-							<Check class="size-3 stroke-[3]" />
-						{/if}
-					</button>
-				{:else if activeCat !== null && tab !== 'deleted'}
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									type="button"
+									class={cn(
+										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
+										isSelected
+											? 'border-primary bg-primary text-primary-foreground'
+											: 'border-muted-foreground/40 hover:border-foreground bg-background'
+									)}
+									onclick={(e) => {
+										e.stopPropagation();
+										toggleSelect(t.id);
+									}}
+								>
+									{#if isSelected}
+										<Check class="size-3 stroke-[3]" />
+									{/if}
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>{isSelected ? 'Batalkan pilihan' : 'Pilih todo ini'}</Tooltip.Content>
+					</Tooltip.Root>
+				{:else if activeCat !== null && tab !== 'deleted' && editId !== t.id}
 					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50" />
 				{/if}
 
 				{#if editId === t.id}
 					<!-- svelte-ignore a11y_autofocus -->
 					<InputGroup
-						class="h-auto min-w-0 flex-1 flex-col rounded-xl border-primary bg-card ring-3 ring-primary/15"
+						class="h-auto min-w-0 flex-1 flex-col rounded-xl border-primary bg-card ring-2 ring-primary/20 overflow-hidden shadow-xs p-1 gap-0.5"
 						onfocusout={(e: FocusEvent) => {
 							const el = e.currentTarget as HTMLElement;
 							const next = e.relatedTarget as Node | null;
@@ -796,19 +930,21 @@
 								autofocus
 								autocomplete="off"
 								onkeydown={onEditKey}
-								class="h-7 text-xs"
+								class="h-7 min-h-7 px-2 pt-1.5 pb-0.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-transparent [&]:pt-1.5 [&]:pb-0.5"
 							/>
 							{#if showEditDesc}
 								<InputGroupTextarea
 									bind:ref={editDescInput}
 									bind:value={editDesc}
 									rows={1}
-									onkeydown={onEditKey}
+									style="field-sizing: content;"
+									onkeydown={onEditDescKey}
+									oninput={(e: Event) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
 									placeholder="Tambahkan deskripsi singkat (opsional)"
-									class="text-[10px] text-muted-foreground"
+									class="min-h-6 py-0.5 px-2 text-xs max-h-32 text-muted-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/50 border-0 shadow-none [&]:pt-0.5 [&]:pb-0.5"
 								/>
 							{/if}
-							<InputGroupAddon align="block-end" class="gap-1.5 border-t bg-transparent">
+							<InputGroupAddon align="block-end" class="!pt-0 !pb-0.5 !px-1 gap-1 bg-transparent border-0 w-full items-center text-xs justify-start">
 								<Tooltip.Root>
 									<Tooltip.Trigger>
 										{#snippet child({ props })}
@@ -818,10 +954,14 @@
 												size="icon-xs"
 												onclick={() => {
 													showEditDesc = !showEditDesc;
-													if (showEditDesc) setTimeout(() => editDescInput?.focus(), 0);
+													if (showEditDesc) {
+														setTimeout(() => {
+															editDescInput?.focus();
+															resizeTextarea(editDescInput);
+														}, 0);
+													}
 												}}
-												class="shrink-0 text-muted-foreground hover:text-primary"
-												title={showEditDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+												class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
 											>
 												{#if showEditDesc}
 													<X />
@@ -840,22 +980,29 @@
 									value={editCat}
 									placeholder="Kategori"
 									class="shrink-0"
-									triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
+									triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
 									onSelect={(id) => {
 										if (id !== null) editCat = id;
 									}}
 									{onOpenAddCategory}
 								/>
-								<InputGroupButton
-									variant="default"
-									size="icon-xs"
-									title="Simpan"
-									onclick={() => finishEdit(true)}
-									disabled={!editVal.trim()}
-									class="ms-auto"
-								>
-									<ArrowUp />
-								</InputGroupButton>
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
+											<InputGroupButton
+												{...props}
+												variant="default"
+												size="icon-xs"
+												onclick={() => finishEdit(true)}
+												disabled={!editVal.trim()}
+												class="size-6 rounded-md ms-auto"
+											>
+												<Check />
+											</InputGroupButton>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>Simpan</Tooltip.Content>
+								</Tooltip.Root>
 							</InputGroupAddon>
 						</InputGroup>
 				{:else}
@@ -927,7 +1074,6 @@
 														skipEditClose = false;
 													}, 0);
 												}}
-												title="Edit deskripsi"
 											>
 												{t.description}
 											</button>
@@ -1021,12 +1167,12 @@
 
 	<!-- input tugas baru -->
 	<footer class="p-2">
-		<InputGroup class="h-auto rounded-2xl bg-card">
+		<InputGroup class="h-auto rounded-xl border border-input/60 bg-card shadow-xs transition-colors overflow-hidden p-1 gap-0.5">
 			<InputGroupInput
 				bind:value={newText}
 				placeholder="Tulis tugas baru..."
 				autocomplete="off"
-				class="h-7 text-xs"
+				class="h-7 min-h-7 px-2 pt-1.5 pb-0.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-transparent [&]:pt-1.5 [&]:pb-0.5"
 				onkeydown={(e: KeyboardEvent) => {
 					if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
 						e.preventDefault();
@@ -1038,12 +1184,20 @@
 				<InputGroupTextarea
 					bind:ref={descInput}
 					bind:value={newDesc}
-					rows={2}
+					rows={1}
+					style="field-sizing: content;"
+					onkeydown={(e: KeyboardEvent) => {
+						if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+							e.preventDefault();
+							submitAdd();
+						}
+					}}
+					oninput={(e: Event) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
 					placeholder="Tambahkan deskripsi singkat (opsional)"
-					class="text-[10px] text-muted-foreground"
+					class="min-h-6 py-0.5 px-2 text-xs max-h-32 text-muted-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/50 border-0 shadow-none [&]:pt-0.5 [&]:pb-0.5"
 				/>
 			{/if}
-			<InputGroupAddon align="block-end" class="gap-1.5 border-t bg-transparent">
+			<InputGroupAddon align="block-end" class="!pt-0 !pb-0.5 !px-1 gap-1 bg-transparent border-0 w-full items-center text-xs justify-start">
 				<Tooltip.Root>
 					<Tooltip.Trigger>
 						{#snippet child({ props })}
@@ -1052,9 +1206,16 @@
 								variant="ghost"
 								size="icon-xs"
 								disabled={false}
-								onclick={() => (showDesc = !showDesc)}
-								class="shrink-0 text-muted-foreground hover:text-primary"
-								title={showDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+								onclick={() => {
+									showDesc = !showDesc;
+									if (showDesc) {
+										setTimeout(() => {
+											descInput?.focus();
+											resizeTextarea(descInput);
+										}, 0);
+									}
+								}}
+								class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
 							>
 								{#if showDesc}
 									<X />
@@ -1073,22 +1234,29 @@
 					value={newCat}
 					placeholder="Kategori"
 					class="shrink-0"
-					triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
+					triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
 					onSelect={(id) => {
 						if (id !== null) newCat = id;
 					}}
 					{onOpenAddCategory}
 				/>
-				<InputGroupButton
-					variant="default"
-					size="icon-xs"
-					title="Kirim tugas"
-					onclick={submitAdd}
-					disabled={!newText.trim()}
-					class="ms-auto"
-				>
-					<ArrowUp />
-				</InputGroupButton>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<InputGroupButton
+								{...props}
+								variant="default"
+								size="icon-xs"
+								onclick={submitAdd}
+								disabled={!newText.trim()}
+								class="size-6 rounded-md ms-auto"
+							>
+								<ArrowUp />
+							</InputGroupButton>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Kirim tugas</Tooltip.Content>
+				</Tooltip.Root>
 			</InputGroupAddon>
 		</InputGroup>
 	</footer>
@@ -1096,8 +1264,8 @@
 	<AlertDialog.Root bind:open={confirmDiscard}>
 		<AlertDialog.Content>
 			<AlertDialog.Header>
-				<AlertDialog.Title>Edit belum disimpan</AlertDialog.Title>
-				<AlertDialog.Description>Simpan perubahan pada tugas ini?</AlertDialog.Description>
+				<AlertDialog.Title class="text-sm font-semibold">Edit belum disimpan</AlertDialog.Title>
+				<AlertDialog.Description class="text-xs">Simpan perubahan pada tugas ini?</AlertDialog.Description>
 			</AlertDialog.Header>
 			<AlertDialog.Footer>
 				<AlertDialog.Action onclick={() => finishEdit(true)}>Simpan</AlertDialog.Action>

@@ -3,6 +3,7 @@
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { toast } from 'svelte-sonner';
 	import { PALETTE, TONE, getSolidCls, type Category } from '#lib/types.js';
 	import { cn } from '#lib/utils';
@@ -68,7 +69,7 @@
 <Dialog.Root open={mode !== null} onOpenChange={(open) => { if (!open) mode = null; }}>
 	<Dialog.Content class="max-w-xs gap-4 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>{mode === 'add' ? 'Tambah kategori' : 'Ganti nama kategori'}</Dialog.Title>
+			<Dialog.Title class="text-sm font-semibold">{mode === 'add' ? 'Tambah kategori' : 'Ganti nama kategori'}</Dialog.Title>
 			<Dialog.Description class="text-xs">
 				{mode === 'add' ? 'Kategori baru langsung dipakai.' : `Nama sekarang: ${category?.name ?? ''}`}
 			</Dialog.Description>
@@ -83,16 +84,23 @@
 		/>
 		<div class="flex flex-wrap gap-1.5">
 			{#each PALETTE as c}
-				<button
-					type="button"
-					title={c}
-					onclick={() => (catColor = c)}
-					class={cn(
-						'size-5 cursor-pointer rounded-full border-2 transition-transform',
-						getSolidCls(c),
-						catColor === c ? 'scale-110 border-foreground' : 'border-transparent'
-					)}
-				></button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								type="button"
+								onclick={() => (catColor = c)}
+								class={cn(
+									'size-5 cursor-pointer rounded-full border-2 transition-transform',
+									getSolidCls(c),
+									catColor === c ? 'scale-110 border-foreground' : 'border-transparent'
+								)}
+							></button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>{c}</Tooltip.Content>
+				</Tooltip.Root>
 			{/each}
 		</div>
 		{#if catErr}

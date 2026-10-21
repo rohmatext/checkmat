@@ -55,7 +55,7 @@
 <Dialog.Root open={mode !== null} onOpenChange={(open) => { if (!open) mode = null; }}>
 	<Dialog.Content class="max-w-xs gap-4 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>{mode === 'add' ? 'Tambah space' : 'Edit space'}</Dialog.Title>
+			<Dialog.Title class="text-sm font-semibold">{mode === 'add' ? 'Tambah space' : 'Edit space'}</Dialog.Title>
 			<Dialog.Description class="text-xs">
 				{mode === 'add' ? 'Space baru akan dibuat dengan kategori Umum.' : 'Perbarui nama dan deskripsi space.'}
 			</Dialog.Description>

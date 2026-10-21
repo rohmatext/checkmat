@@ -25,6 +25,7 @@
 	import ProjectsView from '#lib/components/views/ProjectsView.svelte';
 	import CategoriesView from '#lib/components/views/CategoriesView.svelte';
 	import TasksView from '#lib/components/views/TasksView.svelte';
+	import AboutView from '#lib/components/views/AboutView.svelte';
 
 	// Dialogs
 	import LockOverlay from '#lib/components/dialogs/LockOverlay.svelte';
@@ -42,6 +43,7 @@
 	let projects = $state<Project[]>([]);
 	let activeProject = $state<number | null>(null);
 	let page = $state<Page>('home');
+	let prevPage = $state<Page>('home');
 	let tab = $state<Tab>('active');
 	let activeCat = $state<number | null>(null);
 	let newCat = $state<number | null>(null);
@@ -60,7 +62,12 @@
 	let categoryDialogMode = $state<'add' | 'rename' | null>(null);
 	let editingCategory = $state<Category | null>(null);
 	let moveTask = $state<Task | null>(null);
-	let confirmState = $state<{ msg: string; run: () => Promise<void> } | null>(null);
+	let confirmState = $state<{
+		msg: string;
+		run: () => Promise<void>;
+		variant?: 'destructive' | 'default';
+		actionLabel?: string;
+	} | null>(null);
 
 	// Derived
 	const activeProjectItem = $derived(projects.find((p) => p.id === activeProject));
@@ -77,8 +84,18 @@
 		locked = true;
 	}
 
-	function askConfirm(msg: string, run: () => Promise<void>) {
-		confirmState = { msg, run };
+	function openAbout() {
+		prevPage = page;
+		page = 'about';
+	}
+
+	function askConfirm(
+		msg: string,
+		run: () => Promise<void>,
+		variant?: 'destructive' | 'default',
+		actionLabel?: string
+	) {
+		confirmState = { msg, run, variant, actionLabel };
 	}
 
 	// Backend API Calls
@@ -259,7 +276,7 @@
 			await invoke('set_done', { id: t.id, done: !t.done });
 			await refresh();
 			toast.success(t.done ? 'Todo dikembalikan ke belum selesai' : 'Todo ditandai selesai');
-		});
+		}, 'default');
 	}
 
 	function handleSoftDelete(t: Task) {
@@ -267,7 +284,7 @@
 			await invoke('soft_delete', { id: t.id });
 			await refresh();
 			toast.success('Todo dipindahkan ke Dihapus');
-		});
+		}, 'destructive');
 	}
 
 	async function handleRestore(t: Task) {
@@ -281,32 +298,48 @@
 			await invoke('hard_delete', { id: t.id });
 			await refresh();
 			toast.success('Todo berhasil dihapus permanen');
-		});
+		}, 'destructive');
 	}
 
-	function handleBatchSoftDelete(ids: number[]) {
+	function handleBatchSetDone(ids: number[], done: boolean, onSuccess?: () => void) {
+		if (ids.length === 0) return;
+		const msg = done
+			? `Tandai ${ids.length} tugas yang dipilih selesai?`
+			: `Kembalikan ${ids.length} tugas yang dipilih ke daftar tugas?`;
+		askConfirm(msg, async () => {
+			await invoke('set_done_batch', { ids, done });
+			await refresh();
+			toast.success(done ? `${ids.length} tugas ditandai selesai` : `${ids.length} tugas dikembalikan ke daftar tugas`);
+			onSuccess?.();
+		}, 'default');
+	}
+
+	function handleBatchSoftDelete(ids: number[], onSuccess?: () => void) {
 		if (ids.length === 0) return;
 		askConfirm(`Hapus ${ids.length} todo terpilih? Bisa dipulihkan di tab Dihapus.`, async () => {
 			await invoke('soft_delete_batch', { ids });
 			await refresh();
 			toast.success(`${ids.length} todo dipindahkan ke Dihapus`);
-		});
+			onSuccess?.();
+		}, 'destructive');
 	}
 
-	async function handleBatchRestore(ids: number[]) {
+	async function handleBatchRestore(ids: number[], onSuccess?: () => void) {
 		if (ids.length === 0) return;
 		await invoke('restore_batch', { ids });
 		await refresh();
 		toast.success(`${ids.length} todo berhasil dipulihkan`);
+		onSuccess?.();
 	}
 
-	function handleBatchHardDelete(ids: number[]) {
+	function handleBatchHardDelete(ids: number[], onSuccess?: () => void) {
 		if (ids.length === 0) return;
 		askConfirm(`Hapus PERMANEN ${ids.length} todo terpilih? Tindakan ini tidak bisa dibatalkan.`, async () => {
 			await invoke('hard_delete_batch', { ids });
 			await refresh();
 			toast.success(`${ids.length} todo berhasil dihapus permanen`);
-		});
+			onSuccess?.();
+		}, 'destructive');
 	}
 
 	async function handleMoveTaskCategory(t: Task, catId: number) {
@@ -385,6 +418,7 @@
 			onReorderProjects={handleReorderProjects}
 			onLockApp={lockApp}
 			onToggleTheme={toggleTheme}
+			onOpenAbout={openAbout}
 		/>
 	{:else if page === 'categories'}
 		<CategoriesView
@@ -399,6 +433,8 @@
 			onReorderCategories={handleReorderCategories}
 			onSetColorQuick={setCatColorQuick}
 		/>
+	{:else if page === 'about'}
+		<AboutView onBack={() => (page = prevPage === 'about' ? 'tasks' : prevPage)} />
 	{:else}
 		<TasksView
 			{tasks}
@@ -418,11 +454,13 @@
 			onOpenAddCategory={() => openCategoryDialog('add')}
 			onLockApp={lockApp}
 			onToggleTheme={toggleTheme}
+			onOpenAbout={openAbout}
 			onOpenImportDialog={() => (importDialogOpen = true)}
 			onOpenExportDialog={() => (exportDialogOpen = true)}
 			onAddTask={handleAddTask}
 			onUpdateTask={handleUpdateTask}
 			onToggleDone={handleToggleDone}
+			onSetDoneBatch={handleBatchSetDone}
 			onSoftDelete={handleSoftDelete}
 			onSoftDeleteBatch={handleBatchSoftDelete}
 			onRestore={handleRestore}

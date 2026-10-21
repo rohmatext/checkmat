@@ -3,6 +3,7 @@
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { getSolidCls, type Category, type Task } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
@@ -41,7 +42,7 @@
 <Dialog.Root open={task !== null} onOpenChange={(open) => { if (!open) task = null; }}>
 	<Dialog.Content class="max-w-xs gap-3 p-4">
 		<Dialog.Header class="gap-1">
-			<Dialog.Title>Ganti kategori</Dialog.Title>
+			<Dialog.Title class="text-sm font-semibold">Ganti kategori</Dialog.Title>
 			<Dialog.Description class="text-xs [overflow-wrap:anywhere]">{task?.text ?? ''}</Dialog.Description>
 		</Dialog.Header>
 
@@ -54,14 +55,21 @@
 					class="h-8 pl-8 pr-7 text-xs"
 				/>
 				{#if query}
-					<button
-						type="button"
-						onclick={() => (query = '')}
-						class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
-						title="Hapus pencarian"
-					>
-						<X class="size-3" />
-					</button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									type="button"
+									onclick={() => (query = '')}
+									class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+								>
+									<X class="size-3" />
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Hapus pencarian</Tooltip.Content>
+					</Tooltip.Root>
 				{/if}
 			</div>
 		{/if}

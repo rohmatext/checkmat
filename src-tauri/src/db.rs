@@ -924,6 +924,28 @@ pub fn set_done(db: tauri::State<Db>, id: i64, done: bool) -> R<()> {
 }
 
 #[tauri::command]
+pub fn set_done_batch(db: tauri::State<Db>, ids: Vec<i64>, done: bool) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let t = now();
+    for id in ids {
+        let cat = task_cat(&tx, id);
+        let pos = top_pos(&tx, done, cat);
+        tx.execute(
+            "UPDATE tasks SET done=?, done_at=?, pos=? WHERE id=? AND deleted=0",
+            rusqlite::params![done as i64, if done { t.clone() } else { String::new() }, pos, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn soft_delete(db: tauri::State<Db>, id: i64) -> R<()> {
     let c = conn(&db);
     c.execute(
