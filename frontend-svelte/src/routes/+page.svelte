@@ -231,8 +231,8 @@
 		}
 	}
 
-	async function handleAddTask(text: string, catId: number) {
-		await invoke('add_task', { text, categoryId: catId, projectId: activeProject });
+	async function handleAddTask(text: string, catId: number, description?: string) {
+		await invoke('add_task', { text, categoryId: catId, projectId: activeProject, description });
 		await refresh();
 		toast.success('Todo berhasil ditambahkan');
 		if (activeCat !== null && activeCat !== catId) {
@@ -241,9 +241,9 @@
 		}
 	}
 
-	async function handleUpdateTask(id: number, text: string, catId: number) {
+	async function handleUpdateTask(id: number, text: string, catId: number, description?: string) {
 		try {
-			await invoke('update_task', { id, text, categoryId: catId, projectId: activeProject });
+			await invoke('update_task', { id, text, categoryId: catId, projectId: activeProject, description });
 			await refresh();
 			toast.success('Todo berhasil diperbarui');
 		} catch (e) {

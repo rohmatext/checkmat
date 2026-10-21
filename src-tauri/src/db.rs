@@ -84,6 +84,8 @@ fn save(c: &Connection, path: &Path) {
 pub struct Task {
     pub id: i64,
     pub text: String,
+    #[serde(default)]
+    pub description: String,
     pub done: bool,
     pub deleted: bool,
     pub pos: i64,
@@ -253,6 +255,7 @@ impl Db {
             "CREATE TABLE IF NOT EXISTS tasks(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 text TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
                 done INTEGER NOT NULL DEFAULT 0,
                 deleted INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
@@ -270,6 +273,8 @@ impl Db {
         {
             conn.execute("UPDATE tasks SET pos = id", []).ok();
         }
+        conn.execute("ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''", [])
+            .ok();
 
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS projects(
@@ -501,7 +506,7 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
     let c = conn(&db);
     let mut st = c
         .prepare(
-            "SELECT id, text, done, deleted, pos, category_id, project_id FROM tasks
+            "SELECT id, text, COALESCE(description,''), done, deleted, pos, category_id, project_id FROM tasks
              WHERE project_id=? ORDER BY pos ASC, id DESC",
         )
         .map_err(|e| e.to_string())?;
@@ -510,11 +515,12 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
             Ok(Task {
                 id: r.get(0)?,
                 text: r.get(1)?,
-                done: r.get::<_, i64>(2)? != 0,
-                deleted: r.get::<_, i64>(3)? != 0,
-                pos: r.get(4)?,
-                category_id: r.get(5)?,
-                project_id: r.get(6)?,
+                description: r.get(2)?,
+                done: r.get::<_, i64>(3)? != 0,
+                deleted: r.get::<_, i64>(4)? != 0,
+                pos: r.get(5)?,
+                category_id: r.get(6)?,
+                project_id: r.get(7)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -831,6 +837,7 @@ pub fn add_task(
     text: String,
     category_id: i64,
     project_id: i64,
+    description: Option<String>,
 ) -> R<()> {
     let text = text.trim();
     if text.is_empty() {
@@ -848,10 +855,11 @@ pub fn add_task(
         return Err("Kategori bukan bagian dari space aktif".into());
     }
     let pos = top_pos(&c, false, category_id);
+    let desc = description.unwrap_or_default().trim().to_string();
     c.execute(
-        "INSERT INTO tasks(text, done, deleted, created_at, pos, category_id, project_id)
-         VALUES(?,0,0,?,?,?,?)",
-        rusqlite::params![text, now(), pos, category_id, project_id],
+        "INSERT INTO tasks(text, description, done, deleted, created_at, pos, category_id, project_id)
+         VALUES(?, ?, 0, 0, ?, ?, ?, ?)",
+        rusqlite::params![text, desc, now(), pos, category_id, project_id],
     )
     .map_err(|e| e.to_string())?;
     save(&c, &db.path);
@@ -865,6 +873,7 @@ pub fn update_task(
     text: String,
     category_id: i64,
     project_id: i64,
+    description: Option<String>,
 ) -> R<()> {
     let text = text.trim();
     if text.is_empty() {
@@ -888,9 +897,10 @@ pub fn update_task(
     } else {
         top_pos(&c, false, category_id)
     };
+    let desc = description.unwrap_or_default().trim().to_string();
     let changed = c.execute(
-        "UPDATE tasks SET text=?, category_id=?, pos=? WHERE id=? AND project_id=?",
-        rusqlite::params![text, category_id, pos, id, project_id],
+        "UPDATE tasks SET text=?, description=?, category_id=?, pos=? WHERE id=? AND project_id=?",
+        rusqlite::params![text, desc, category_id, pos, id, project_id],
     )
     .map_err(|e| e.to_string())?;
     if changed == 0 {

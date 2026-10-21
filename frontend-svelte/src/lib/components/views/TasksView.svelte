@@ -18,17 +18,25 @@
 		RotateCcw,
 		Undo2,
 		Plus,
+		X,
 		Ellipsis,
 		EllipsisVertical,
 		ListChecks
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
-	import { Input } from '#lib/components/ui/input/index.js';
+	import {
+		InputGroup,
+		InputGroupAddon,
+		InputGroupButton,
+		InputGroupInput,
+		InputGroupTextarea
+	} from '#lib/components/ui/input-group/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Tabs from '#lib/components/ui/tabs/index.js';
 	import * as Select from '#lib/components/ui/select/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
+	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import { getBadgeCls, type Category, type Project, type SortDir, type SortField, type Tab, type Task } from '#lib/types.js';
 	import { cn } from '#lib/utils';
@@ -84,8 +92,8 @@
 		onToggleTheme: () => void;
 		onOpenImportDialog: () => void;
 		onOpenExportDialog: () => void;
-		onAddTask: (text: string, catId: number) => Promise<void>;
-		onUpdateTask: (id: number, text: string, catId: number) => Promise<void>;
+		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
+		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onToggleDone: (t: Task) => void;
 		onSoftDelete: (t: Task) => void;
 		onSoftDeleteBatch?: (ids: number[]) => void;
@@ -98,8 +106,36 @@
 	} = $props();
 
 	let newText = $state('');
+	let showDesc = $state(false);
+	let newDesc = $state('');
+	let descInput: HTMLTextAreaElement | null = $state(null);
 	let editId = $state<number | null>(null);
 	let editVal = $state('');
+	let editDesc = $state('');
+	let editCat = $state<number | null>(null);
+	let showEditDesc = $state(false);
+	let editInput: HTMLInputElement | null = $state(null);
+	let editDescInput: HTMLTextAreaElement | null = $state(null);
+	let confirmDiscard = $state(false);
+	let skipEditClose = $state(false);
+
+	function splitDesc(s: string) {
+		const m = s.match(/(?:^|\s)(?:desc|d:|note:)\s+(.*)$/i);
+		if (m) {
+			const desc = m[1].trim();
+			const text = s.slice(0, m.index).trim();
+			return { text, desc };
+		}
+		return { text: s.trim(), desc: '' };
+	}
+
+	$effect(() => {
+		if (showDesc) descInput?.focus();
+	});
+
+	$effect(() => {
+		if (!confirmDiscard && editId !== null) editInput?.focus();
+	});
 	let dragId = $state<number | null>(null);
 	let overIdx = $state<number | null>(null);
 	let dragRows = $state<Task[] | null>(null);
@@ -242,16 +278,32 @@
 		if (t.deleted) return;
 		editId = t.id;
 		editVal = t.text;
+		editDesc = t.description ?? '';
+		editCat = t.category_id;
+		showEditDesc = !!t.description;
+		skipEditClose = false;
 	}
 
 	async function finishEdit(save: boolean) {
+		if (skipEditClose) {
+			skipEditClose = false;
+			return;
+		}
+		confirmDiscard = false;
 		const id = editId;
 		const t = tasks.find((x) => x.id === id);
 		editId = null;
 		if (!t) return;
 		const val = editVal.trim();
-		if (save && val && val !== t.text) {
-			await onUpdateTask(t.id, val, t.category_id);
+		const desc = editDesc.trim();
+		if (
+			save &&
+			val &&
+			(val !== t.text ||
+				desc !== (t.description ?? '') ||
+				editCat !== t.category_id)
+		) {
+			await onUpdateTask(t.id, val, editCat ?? t.category_id, desc || undefined);
 		}
 	}
 
@@ -261,16 +313,20 @@
 	};
 
 	async function submitAdd() {
-		const text = newText.trim();
+		const raw = newText;
+		const { text, desc: parsedDesc } = splitDesc(raw);
 		if (!text) return;
 		const catId = newCat ?? cats[0]?.id;
 		if (catId == null) {
 			alert('Belum ada kategori.');
 			return;
 		}
+		const desc = (newDesc.trim() || parsedDesc).trim();
 		newText = '';
+		newDesc = '';
+		showDesc = false;
 		tab = 'active';
-		await onAddTask(text, catId);
+		await onAddTask(text, catId, desc || undefined);
 	}
 
 	/* ----- drag reorder ----- */
@@ -698,13 +754,110 @@
 
 				{#if editId === t.id}
 					<!-- svelte-ignore a11y_autofocus -->
-					<Input
-						bind:value={editVal}
-						autofocus
-						onkeydown={onEditKey}
-						onblur={() => finishEdit(true)}
-						class="h-7 flex-1 rounded-md border-primary px-1.5 py-0.5 text-xs ring-3 ring-primary/15"
-					/>
+					<InputGroup
+						class="h-auto min-w-0 flex-1 flex-col rounded-xl border-primary bg-card ring-3 ring-primary/15"
+						onfocusout={(e: FocusEvent) => {
+							const el = e.currentTarget as HTMLElement;
+							const next = e.relatedTarget as Node | null;
+							const apply = () => {
+								if (editId === null || !el.isConnected) return;
+								const cur = tasks.find((x) => x.id === editId);
+								const changed =
+									!!cur &&
+									(editVal.trim() !== cur.text ||
+										editDesc.trim() !== (cur.description ?? '') ||
+										editCat !== cur.category_id);
+								if (changed) {
+									confirmDiscard = true;
+								} else {
+									finishEdit(true);
+								}
+							};
+							if (next instanceof Element) {
+								if (el.contains(next) || next.closest('[data-slot="popover-content"]')) return;
+								apply();
+								return;
+							}
+							// relatedTarget null: fokus bisa hilang karena elemen internal dilepas (toggle). Tunggu render selesai dulu.
+							setTimeout(() => {
+								if (editId === null) return;
+								const ae = document.activeElement;
+								if (ae instanceof Element && ae !== document.body) {
+									if (el.contains(ae)) return;
+									if (ae.closest('[data-slot="popover-content"],[role="dialog"]')) return;
+								}
+								apply();
+							}, 0);
+						}}
+						>
+							<InputGroupInput
+								bind:ref={editInput}
+								bind:value={editVal}
+								autofocus
+								autocomplete="off"
+								onkeydown={onEditKey}
+								class="h-7 text-xs"
+							/>
+							{#if showEditDesc}
+								<InputGroupTextarea
+									bind:ref={editDescInput}
+									bind:value={editDesc}
+									rows={1}
+									onkeydown={onEditKey}
+									placeholder="Tambahkan deskripsi singkat (opsional)"
+									class="text-[10px] text-muted-foreground"
+								/>
+							{/if}
+							<InputGroupAddon align="block-end" class="gap-1.5 border-t bg-transparent">
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
+											<Button
+												{...props}
+												variant="ghost"
+												size="icon-xs"
+												onclick={() => {
+													showEditDesc = !showEditDesc;
+													if (showEditDesc) setTimeout(() => editDescInput?.focus(), 0);
+												}}
+												class="shrink-0 text-muted-foreground hover:text-primary"
+												title={showEditDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+											>
+												{#if showEditDesc}
+													<X />
+												{:else}
+													<Plus />
+												{/if}
+											</Button>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>
+										{showEditDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+									</Tooltip.Content>
+								</Tooltip.Root>
+								<CategorySelect
+									{cats}
+									value={editCat}
+									placeholder="Kategori"
+									class="shrink-0"
+									triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
+									onSelect={(id) => {
+										if (id !== null) editCat = id;
+									}}
+									{onOpenAddCategory}
+								/>
+								<InputGroupButton
+									variant="default"
+									size="icon-xs"
+									title="Simpan"
+									onclick={() => finishEdit(true)}
+									disabled={!editVal.trim()}
+									class="ms-auto"
+								>
+									<ArrowUp />
+								</InputGroupButton>
+							</InputGroupAddon>
+						</InputGroup>
 				{:else}
 					<div class="flex min-w-0 flex-1 flex-col gap-1">
 						{#if t.deleted}
@@ -748,10 +901,10 @@
 						<Tooltip.Root>
 							<Tooltip.Trigger>
 								{#snippet child({ props })}
-									<span
+									<div
 										{...props}
 										class={cn(
-											'min-w-0 cursor-default text-left [overflow-wrap:anywhere]',
+											'min-w-0 cursor-default flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
 											t.done && 'text-muted-foreground line-through',
 											t.deleted && 'text-muted-foreground'
 										)}
@@ -759,8 +912,27 @@
 											if (!selectMode) startEdit(t);
 										}}
 									>
-										{t.text}
-									</span>
+										<span class="truncate">{t.text}</span>
+										{#if t.description}
+											<button
+												type="button"
+												class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground"
+												onclick={(e) => {
+													e.stopPropagation();
+													if (selectMode) return;
+													skipEditClose = true;
+													startEdit(t);
+													setTimeout(() => {
+														editDescInput?.focus();
+														skipEditClose = false;
+													}, 0);
+												}}
+												title="Edit deskripsi"
+											>
+												{t.description}
+											</button>
+										{/if}
+									</div>
 								{/snippet}
 							</Tooltip.Trigger>
 							<Tooltip.Content>{selectMode ? 'Klik untuk memilih' : 'Klik 2x untuk edit'}</Tooltip.Content>
@@ -848,36 +1020,90 @@
 	</main>
 
 	<!-- input tugas baru -->
-	<footer class="flex items-center gap-1.5 p-2">
-		<div class="flex flex-1 items-center gap-1 rounded-md border border-input bg-card px-2">
-			<Input
+	<footer class="p-2">
+		<InputGroup class="h-auto rounded-2xl bg-card">
+			<InputGroupInput
 				bind:value={newText}
-				placeholder="Tulis tugas, Enter untuk kirim"
+				placeholder="Tulis tugas baru..."
 				autocomplete="off"
-				class="h-8 min-w-0 flex-1 border-0 bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
-				onkeydown={(e) => e.key === 'Enter' && submitAdd()}
-			/>
-			<CategorySelect
-				{cats}
-				value={newCat}
-				placeholder="Kategori"
-				class="shrink-0"
-				triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
-				onSelect={(id) => {
-					if (id !== null) newCat = id;
+				class="h-7 text-xs"
+				onkeydown={(e: KeyboardEvent) => {
+					if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+						e.preventDefault();
+						submitAdd();
+					}
 				}}
-				{onOpenAddCategory}
 			/>
-			<Button
-				variant="ghost"
-				size="icon-xs"
-				title="Tambah kategori baru"
-				onclick={onOpenAddCategory}
-				class="shrink-0 text-muted-foreground hover:text-primary"
-			>
-				<Plus />
-			</Button>
-		</div>
-		<Button onclick={submitAdd} size="sm" class="h-8 shrink-0 px-3.5 text-xs">Kirim</Button>
+			{#if showDesc}
+				<InputGroupTextarea
+					bind:ref={descInput}
+					bind:value={newDesc}
+					rows={2}
+					placeholder="Tambahkan deskripsi singkat (opsional)"
+					class="text-[10px] text-muted-foreground"
+				/>
+			{/if}
+			<InputGroupAddon align="block-end" class="gap-1.5 border-t bg-transparent">
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-xs"
+								disabled={false}
+								onclick={() => (showDesc = !showDesc)}
+								class="shrink-0 text-muted-foreground hover:text-primary"
+								title={showDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+							>
+								{#if showDesc}
+									<X />
+								{:else}
+									<Plus />
+								{/if}
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						{showDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+					</Tooltip.Content>
+				</Tooltip.Root>
+				<CategorySelect
+					{cats}
+					value={newCat}
+					placeholder="Kategori"
+					class="shrink-0"
+					triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/40 rounded-full"
+					onSelect={(id) => {
+						if (id !== null) newCat = id;
+					}}
+					{onOpenAddCategory}
+				/>
+				<InputGroupButton
+					variant="default"
+					size="icon-xs"
+					title="Kirim tugas"
+					onclick={submitAdd}
+					disabled={!newText.trim()}
+					class="ms-auto"
+				>
+					<ArrowUp />
+				</InputGroupButton>
+			</InputGroupAddon>
+		</InputGroup>
 	</footer>
+
+	<AlertDialog.Root bind:open={confirmDiscard}>
+		<AlertDialog.Content>
+			<AlertDialog.Header>
+				<AlertDialog.Title>Edit belum disimpan</AlertDialog.Title>
+				<AlertDialog.Description>Simpan perubahan pada tugas ini?</AlertDialog.Description>
+			</AlertDialog.Header>
+			<AlertDialog.Footer>
+				<AlertDialog.Action onclick={() => finishEdit(true)}>Simpan</AlertDialog.Action>
+				<AlertDialog.Action variant="destructive" onclick={() => finishEdit(false)}>Buang</AlertDialog.Action>
+				<AlertDialog.Cancel>Lanjut Edit</AlertDialog.Cancel>
+			</AlertDialog.Footer>
+		</AlertDialog.Content>
+	</AlertDialog.Root>
 </div>

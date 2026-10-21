@@ -45,7 +45,7 @@
 			<Dialog.Description class="text-xs">Beralih ke daftar tugas space lain.</Dialog.Description>
 		</Dialog.Header>
 
-		{#if projects.length > 4}
+		{#if projects.length > 0}
 			<!-- Search Input -->
 			<div class="relative flex items-center">
 				<Search class="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" />
