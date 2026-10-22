@@ -33,6 +33,19 @@
 
 	let open = $state(false);
 	let query = $state('');
+	let triggerEl: HTMLButtonElement | null = $state(null);
+	let popWidth = $state(0);
+
+	$effect(() => {
+		if (!triggerEl) return;
+		const update = () => {
+			popWidth = triggerEl?.getBoundingClientRect().width ?? 0;
+		};
+		update();
+		const ro = new ResizeObserver(update);
+		ro.observe(triggerEl);
+		return () => ro.disconnect();
+	});
 
 	const selectedCat = $derived(cats.find((c) => c.id === value));
 
@@ -62,6 +75,7 @@
 		{#snippet child({ props })}
 			<button
 				type="button"
+				bind:this={triggerEl}
 				{...props}
 				class={cn(
 					'flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-semibold shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer',
@@ -84,7 +98,10 @@
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content
-		class="w-(--bits-popover-content-anchor-width) min-w-64 max-w-(--bits-popover-content-available-width) p-2 gap-2"
+		class="p-2 gap-2"
+		style={popWidth
+			? `width:${popWidth}px;min-width:12rem;max-width:calc(100vw - 1rem);`
+			: 'min-width:12rem;max-width:calc(100vw - 1rem);'}
 		align="start"
 	>
 		<!-- Search Input -->

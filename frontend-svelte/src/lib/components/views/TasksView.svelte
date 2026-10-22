@@ -130,6 +130,27 @@
 
 	let expandedIds = $state<number[]>([]);
 	let detailTask = $state<Task | null>(null);
+	let truncState = $state<Record<number, { t: boolean; d: boolean }>>({});
+
+	// Deteksi teks yang terpotong ellipsis (judul / deskripsi) supaya expand
+	// hanya offers saat memang ada yang terpotong.
+	function trackTrunc(node: HTMLElement, params: { id: number; kind: 't' | 'd' }) {
+		const update = () => {
+			const over = node.scrollWidth > node.clientWidth + 1;
+			const cur = truncState[params.id] ?? { t: false, d: false };
+			if (cur[params.kind] !== over) {
+				truncState = { ...truncState, [params.id]: { ...cur, [params.kind]: over } };
+			}
+		};
+		update();
+		const ro = new ResizeObserver(update);
+		ro.observe(node);
+		return {
+			destroy() {
+				ro.disconnect();
+			}
+		};
+	}
 
 	function toggleExpand(id: number) {
 		if (expandedIds.includes(id)) {
@@ -1009,7 +1030,9 @@
 								</Badge>
 							</div>
 						{/if}
-						<Tooltip.Root>
+						<Tooltip.Root
+							disabled={!selectMode && !isExpanded && !truncState[t.id]?.t && !truncState[t.id]?.d}
+						>
 							<Tooltip.Trigger>
 								{#snippet child({ props })}
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -1017,7 +1040,8 @@
 									<div
 										{...props}
 										class={cn(
-											'min-w-0 cursor-pointer flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
+											'min-w-0 flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
+											hasOverflow && 'cursor-pointer',
 											t.done && 'text-muted-foreground line-through',
 											t.deleted && 'text-muted-foreground'
 										)}
@@ -1026,7 +1050,10 @@
 											toggleExpand(t.id);
 										}}
 									>
-										<span class={cn('text-xs select-none transition-all', isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate')}>
+										<span
+											use:trackTrunc={{ id: t.id, kind: 't' }}
+											class={cn('text-xs select-none transition-all', isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate')}
+										>
 											{t.text}
 										</span>
 										{#if t.description}
@@ -1037,6 +1064,7 @@
 											{:else}
 												<button
 													type="button"
+													use:trackTrunc={{ id: t.id, kind: 'd' }}
 													class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground"
 													onclick={(e) => {
 														e.stopPropagation();
