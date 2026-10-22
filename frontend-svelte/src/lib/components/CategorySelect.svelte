@@ -83,7 +83,10 @@
 			</button>
 		{/snippet}
 	</Popover.Trigger>
-	<Popover.Content class="w-64 p-2 gap-2" align="start">
+	<Popover.Content
+		class="w-(--bits-popover-content-anchor-width) min-w-64 max-w-(--bits-popover-content-available-width) p-2 gap-2"
+		align="start"
+	>
 		<!-- Search Input -->
 		<div class="relative flex items-center">
 			<Search class="absolute left-2 size-3.5 text-muted-foreground pointer-events-none" />
