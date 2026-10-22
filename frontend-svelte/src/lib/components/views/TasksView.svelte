@@ -1041,7 +1041,7 @@
 										{...props}
 										class={cn(
 											'min-w-0 flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
-											hasOverflow && 'cursor-pointer',
+											(truncState[t.id]?.t || truncState[t.id]?.d) && 'cursor-pointer',
 											t.done && 'text-muted-foreground line-through',
 											t.deleted && 'text-muted-foreground'
 										)}
