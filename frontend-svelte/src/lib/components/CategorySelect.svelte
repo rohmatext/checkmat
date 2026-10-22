@@ -77,6 +77,7 @@
 				type="button"
 				bind:this={triggerEl}
 				{...props}
+				title={selectedCat?.name ?? (value === null && allowAll ? allLabel : placeholder)}
 				class={cn(
 					'flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-semibold shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer',
 					triggerClass
@@ -100,8 +101,8 @@
 	<Popover.Content
 		class="p-2 gap-2"
 		style={popWidth
-			? `width:${popWidth}px;min-width:12rem;max-width:calc(100vw - 1rem);`
-			: 'min-width:12rem;max-width:calc(100vw - 1rem);'}
+			? `width:${Math.max(popWidth, 240)}px;min-width:14rem;max-width:calc(100vw - 1rem);`
+			: 'min-width:14rem;max-width:calc(100vw - 1rem);'}
 		align="start"
 	>
 		<!-- Search Input -->
@@ -137,14 +138,15 @@
 				{@const countAll = countFor(null)}
 				<button
 					type="button"
-					class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
+					class="flex w-full items-start justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
 					onclick={() => handlePick(null)}
+					title={allLabel}
 				>
-					<span class="flex items-center gap-2 truncate">
-						<span class="size-2 rounded-full bg-muted-foreground/60 shrink-0"></span>
-						<span class="truncate">{allLabel}</span>
+					<span class="flex items-start gap-2 min-w-0 flex-1">
+						<span class="size-2 rounded-full bg-muted-foreground/60 shrink-0 mt-1"></span>
+						<span class="line-clamp-2 break-words [overflow-wrap:anywhere] whitespace-normal leading-snug">{allLabel}</span>
 					</span>
-					<span class="flex items-center gap-1.5 shrink-0 text-muted-foreground">
+					<span class="flex items-center gap-1.5 shrink-0 text-muted-foreground mt-0.5">
 						{#if countAll !== null}
 							<span class="text-[10px]">{countAll}</span>
 						{/if}
@@ -160,14 +162,15 @@
 				{@const isSelected = value === c.id}
 				<button
 					type="button"
-					class="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
+					class="flex w-full items-start justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"
 					onclick={() => handlePick(c.id)}
+					title={c.name}
 				>
-					<span class="flex items-center gap-2 truncate min-w-0">
-						<span class={cn('size-2 shrink-0 rounded-full', getSolidCls(c.color))}></span>
-						<span class="truncate">{c.name}</span>
+					<span class="flex items-start gap-2 min-w-0 flex-1">
+						<span class={cn('size-2 shrink-0 rounded-full mt-1', getSolidCls(c.color))}></span>
+						<span class="line-clamp-2 break-words [overflow-wrap:anywhere] whitespace-normal leading-snug">{c.name}</span>
 					</span>
-					<span class="flex items-center gap-1.5 shrink-0 text-muted-foreground">
+					<span class="flex items-center gap-1.5 shrink-0 text-muted-foreground mt-0.5">
 						{#if countCat !== null}
 							<span class="text-[10px]">{countCat}</span>
 						{/if}

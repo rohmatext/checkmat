@@ -24,7 +24,12 @@
 		ListChecks,
 		Info,
 		Copy,
-		Eye
+		Eye,
+		ChevronDown,
+		Clock,
+		Circle,
+		CircleDashed,
+		CircleDot
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import {
@@ -42,7 +47,9 @@
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import TaskDetailDialog from '#lib/components/dialogs/TaskDetailDialog.svelte';
-	import { getBadgeCls, type Category, type Project, type SortDir, type SortField, type Tab, type Task } from '#lib/types.js';
+	import ProjectDetailDialog from '#lib/components/dialogs/ProjectDetailDialog.svelte';
+	import CopyableText from '#lib/components/CopyableText.svelte';
+	import { formatFullDate, formatTaskDate, getBadgeCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
 	let {
@@ -69,6 +76,8 @@
 		onUpdateTask,
 		onDuplicateTask,
 		onToggleDone,
+		onSetTaskStatus,
+		onSetTaskStatusBatch,
 		onSetDoneBatch,
 		onSoftDelete,
 		onSoftDeleteBatch,
@@ -78,7 +87,9 @@
 		onHardDeleteBatch,
 		onMoveTaskCategory,
 		onReorderTasks,
-		onOpenAbout
+		onOpenAbout,
+		onOpenEditProject,
+		onSetProjectStatus
 	}: {
 		tasks: Task[];
 		cats: Category[];
@@ -103,6 +114,8 @@
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onDuplicateTask?: (t: Task) => void;
 		onToggleDone: (t: Task) => void;
+		onSetTaskStatus?: (id: number, status: TaskStatus) => Promise<void>;
+		onSetTaskStatusBatch?: (ids: number[], status: TaskStatus, onSuccess?: () => void) => Promise<void>;
 		onSetDoneBatch?: (ids: number[], done: boolean, onSuccess?: () => void) => void;
 		onSoftDelete: (t: Task) => void;
 		onSoftDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
@@ -113,23 +126,28 @@
 		onMoveTaskCategory: (t: Task) => void;
 		onReorderTasks: (ids: number[]) => Promise<void>;
 		onOpenAbout?: () => void;
+		onOpenEditProject?: () => void;
+		onSetProjectStatus?: (id: number, status: ProjectStatus) => void;
 	} = $props();
 
 	let newText = $state('');
 	let showDesc = $state(false);
 	let newDesc = $state('');
+	let newTextInput: HTMLTextAreaElement | null = $state(null);
 	let descInput: HTMLTextAreaElement | null = $state(null);
 	let editId = $state<number | null>(null);
 	let editVal = $state('');
 	let editDesc = $state('');
+	let editCat = $state<number | null>(null);
 	let showEditDesc = $state(false);
-	let editInput: HTMLInputElement | null = $state(null);
+	let editInput: HTMLTextAreaElement | null = $state(null);
 	let editDescInput: HTMLTextAreaElement | null = $state(null);
 	let confirmDiscard = $state(false);
 	let skipEditClose = $state(false);
 
 	let expandedIds = $state<number[]>([]);
 	let detailTask = $state<Task | null>(null);
+	let showSpaceDetail = $state(false);
 	let truncState = $state<Record<number, { t: boolean; d: boolean }>>({});
 
 	// Deteksi teks yang terpotong ellipsis (judul / deskripsi) supaya expand
@@ -170,6 +188,42 @@
 		return { text: s.trim(), desc: '' };
 	}
 
+	function insertCopyTag(kind: 'new' | 'edit') {
+		if (kind === 'new') {
+			const el = newTextInput;
+			if (el) {
+				const start = el.selectionStart ?? newText.length;
+				const end = el.selectionEnd ?? newText.length;
+				const sel = newText.slice(start, end);
+				newText = newText.slice(0, start) + `[copy]${sel}[/copy]` + newText.slice(end);
+				setTimeout(() => {
+					el.focus();
+					const cursor = start + 6 + sel.length;
+					el.setSelectionRange(cursor, cursor);
+					resizeTextarea(el);
+				}, 0);
+			} else {
+				newText += '[copy][/copy]';
+			}
+		} else {
+			const el = editInput;
+			if (el) {
+				const start = el.selectionStart ?? editVal.length;
+				const end = el.selectionEnd ?? editVal.length;
+				const sel = editVal.slice(start, end);
+				editVal = editVal.slice(0, start) + `[copy]${sel}[/copy]` + editVal.slice(end);
+				setTimeout(() => {
+					el.focus();
+					const cursor = start + 6 + sel.length;
+					el.setSelectionRange(cursor, cursor);
+					resizeTextarea(el);
+				}, 0);
+			} else {
+				editVal += '[copy][/copy]';
+			}
+		}
+	}
+
 	$effect(() => {
 		if (showDesc) descInput?.focus();
 	});
@@ -196,10 +250,48 @@
 	const curCat = $derived(byId(activeCat));
 
 	const inTab = (t: Task, k: Tab) =>
-		k === 'active' ? !t.done && !t.deleted : k === 'done' ? t.done && !t.deleted : t.deleted;
+		k === 'active' || k === 'todo'
+			? !t.deleted && !t.done && (!t.status || t.status === 'todo')
+			: k === 'inprogress'
+				? !t.deleted && !t.done && t.status === 'inprogress'
+				: k === 'done'
+					? !t.deleted && (t.done || t.status === 'done')
+					: t.deleted;
 
 	const count = (k: Tab) =>
 		tasks.filter((t) => (activeCat === null || t.category_id === activeCat) && inTab(t, k)).length;
+
+	function cycleTaskStatus(t: Task) {
+		const current = t.done || t.status === 'done' ? 'done' : t.status === 'inprogress' ? 'inprogress' : 'todo';
+		if (current === 'todo') {
+			if (onSetTaskStatus) {
+				onSetTaskStatus(t.id, 'inprogress');
+			} else {
+				onToggleDone(t);
+			}
+		} else if (current === 'inprogress') {
+			if (onSetTaskStatus) {
+				onSetTaskStatus(t.id, 'done');
+			} else {
+				onToggleDone(t);
+			}
+		} else {
+			if (onSetTaskStatus) {
+				onSetTaskStatus(t.id, 'todo');
+			} else {
+				onToggleDone(t);
+			}
+		}
+	}
+
+	function setStatusDirect(t: Task, st: TaskStatus) {
+		if (onSetTaskStatus) {
+			onSetTaskStatus(t.id, st);
+		} else {
+			if (st === 'done' && !t.done) onToggleDone(t);
+			else if (st !== 'done' && t.done) onToggleDone(t);
+		}
+	}
 
 	let rows = $derived.by(() => {
 		const filtered = tasks.filter(
@@ -350,13 +442,15 @@
 		editId = t.id;
 		editVal = t.text;
 		editDesc = t.description ?? '';
+		editCat = t.category_id;
 		showEditDesc = !!t.description;
 		skipEditClose = false;
-		if (showEditDesc) {
-			setTimeout(() => {
+		setTimeout(() => {
+			resizeTextarea(editInput);
+			if (showEditDesc) {
 				resizeTextarea(editDescInput);
-			}, 0);
-		}
+			}
+		}, 0);
 	}
 
 	async function finishEdit(save: boolean) {
@@ -371,8 +465,14 @@
 		if (!t) return;
 		const val = editVal.trim();
 		const desc = editDesc.trim();
-		if (save && val && (val !== t.text || desc !== (t.description ?? ''))) {
-			await onUpdateTask(t.id, val, t.category_id, desc || undefined);
+		if (
+			save &&
+			val &&
+			(val !== t.text ||
+				desc !== (t.description ?? '') ||
+				editCat !== t.category_id)
+		) {
+			await onUpdateTask(t.id, val, editCat ?? t.category_id, desc || undefined);
 		}
 	}
 
@@ -404,6 +504,9 @@
 		newDesc = '';
 		showDesc = false;
 		tab = 'active';
+		setTimeout(() => {
+			resizeTextarea(newTextInput);
+		}, 0);
 		await onAddTask(text, catId, desc || undefined);
 	}
 
@@ -475,10 +578,10 @@
 		dragRows = null;
 	}
 
-	const tabs: { k: Tab; label: string }[] = [
+	const mainTabs: { k: Tab; label: string }[] = [
 		{ k: 'active', label: 'Todo' },
-		{ k: 'done', label: 'Selesai' },
-		{ k: 'deleted', label: 'Dihapus' }
+		{ k: 'inprogress', label: 'In Progress' },
+		{ k: 'done', label: 'Selesai' }
 	];
 </script>
 
@@ -503,13 +606,13 @@
 							{...props}
 							type="button"
 							class="min-w-0 flex-1 truncate px-2 text-left text-sm font-bold hover:text-primary cursor-pointer"
-							onclick={onOpenProjectPicker}
+							onclick={() => (showSpaceDetail = true)}
 						>
 							{activeProjectItem?.name ?? 'Pilih space'}
 						</button>
 					{/snippet}
 				</Tooltip.Trigger>
-				<Tooltip.Content>Ganti space</Tooltip.Content>
+				<Tooltip.Content>Detail space</Tooltip.Content>
 			</Tooltip.Root>
 			<Tooltip.Root>
 				<Tooltip.Trigger>
@@ -637,21 +740,41 @@
 		}}
 		class="gap-0 px-2 pt-2"
 	>
-		<Tabs.List class="grid w-full grid-cols-3 gap-1 rounded-t-lg rounded-b-none bg-transparent p-0">
-			{#each tabs as { k, label } (k)}
+		<Tabs.List class="flex w-full items-stretch gap-1 rounded-t-lg rounded-b-none bg-transparent p-0">
+			{#each mainTabs as { k, label } (k)}
 				{@const n = count(k)}
 				<Tabs.Trigger
 					value={k}
-					class="cursor-pointer rounded-t-lg border border-b-0 border-border px-1.5 text-xs font-semibold text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_-1px_0_var(--color-primary)]"
+					class="flex-1 cursor-pointer rounded-t-lg border border-b-0 border-border px-1.5 py-1 text-xs font-semibold text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-primary data-[state=active]:shadow-[inset_0_-1px_0_var(--color-primary)] flex items-center justify-center gap-1"
 				>
-					{label}
+					<span>{label}</span>
 					{#if n > 0}
-						<Badge variant={tab === k ? 'secondary' : 'outline'} class="ml-1 px-1.5">
+						<Badge variant={(tab === k || (k === 'active' && tab === 'todo')) ? 'secondary' : 'outline'} class="px-1 py-0 text-[10px] leading-tight font-medium">
 							{n}
 						</Badge>
 					{/if}
 				</Tabs.Trigger>
 			{/each}
+			{@const trashN = count('deleted')}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Tabs.Trigger
+							{...props}
+							value="deleted"
+							class="cursor-pointer shrink-0 rounded-t-lg border border-b-0 border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground data-[state=active]:bg-card data-[state=active]:text-destructive data-[state=active]:shadow-[inset_0_-1px_0_var(--color-destructive)] flex items-center justify-center gap-1"
+						>
+							<Trash class="size-3.5" />
+							{#if trashN > 0}
+								<Badge variant={tab === 'deleted' ? 'secondary' : 'outline'} class="px-1 py-0 text-[10px] leading-tight font-medium text-destructive border-destructive/30">
+									{trashN}
+								</Badge>
+							{/if}
+						</Tabs.Trigger>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Sampah / Dihapus ({trashN})</Tooltip.Content>
+			</Tooltip.Root>
 		</Tabs.List>
 	</Tabs.Root>
 
@@ -712,32 +835,59 @@
 							>
 								<Trash class="size-3" /> Hapus
 							</Button>
-						{:else if tab === 'active'}
-							<Button
-								variant="outline"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
-								onclick={handleBatchSetDoneAction}
-							>
-								<Check class="size-3" /> Selesai
-							</Button>
-							<Button
-								variant="destructive"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1"
-								onclick={handleBatchDeleteAction}
-							>
-								<Trash class="size-3" /> Hapus
-							</Button>
-						{:else if tab === 'done'}
-							<Button
-								variant="outline"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
-								onclick={handleBatchSetUndoneAction}
-							>
-								<Undo2 class="size-3" /> Ke Todo
-							</Button>
+						{:else}
+							{#if onSetTaskStatusBatch}
+								{#if tab !== 'active' && tab !== 'todo'}
+									<Button
+										variant="outline"
+										size="xs"
+										class="h-6 px-1.5 text-[10px] gap-1 text-blue-600 dark:text-blue-400 border-blue-500/40 hover:bg-blue-500/10"
+										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'todo', () => (selectedIds = []))}
+									>
+										<Circle class="size-2.5" /> Todo
+									</Button>
+								{/if}
+								{#if tab !== 'inprogress'}
+									<Button
+										variant="outline"
+										size="xs"
+										class="h-6 px-1.5 text-[10px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
+										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'inprogress', () => (selectedIds = []))}
+									>
+										<Clock class="size-2.5" /> In Progress
+									</Button>
+								{/if}
+								{#if tab !== 'done'}
+									<Button
+										variant="outline"
+										size="xs"
+										class="h-6 px-1.5 text-[10px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
+										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'done', () => (selectedIds = []))}
+									>
+										<Check class="size-2.5" /> Selesai
+									</Button>
+								{/if}
+							{:else}
+								{#if tab === 'done'}
+									<Button
+										variant="outline"
+										size="xs"
+										class="h-6 px-2 text-[11px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
+										onclick={handleBatchSetUndoneAction}
+									>
+										<Undo2 class="size-3" /> Ke Todo
+									</Button>
+								{:else}
+									<Button
+										variant="outline"
+										size="xs"
+										class="h-6 px-2 text-[11px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
+										onclick={handleBatchSetDoneAction}
+									>
+										<Check class="size-3" /> Selesai
+									</Button>
+								{/if}
+							{/if}
 							<Button
 								variant="destructive"
 								size="xs"
@@ -865,7 +1015,7 @@
 					if (selectMode) toggleSelect(t.id);
 				}}
 				class={cn(
-					'mb-1.5 flex items-center gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
+					'mb-1.5 flex items-start gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
 					activeCat !== null && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
 					selectMode ? 'cursor-pointer hover:border-primary/60' : '',
 					isSelected && 'border-primary ring-1 ring-primary/40 bg-primary/5 dark:bg-primary/10',
@@ -880,7 +1030,7 @@
 									{...props}
 									type="button"
 									class={cn(
-										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
+										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer mt-1',
 										isSelected
 											? 'border-primary bg-primary text-primary-foreground'
 											: 'border-muted-foreground/40 hover:border-foreground bg-background'
@@ -899,7 +1049,7 @@
 						<Tooltip.Content>{isSelected ? 'Batal tandai' : 'Tandai todo ini'}</Tooltip.Content>
 					</Tooltip.Root>
 				{:else if activeCat !== null && tab !== 'deleted' && editId !== t.id}
-					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50" />
+					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50 mt-1" />
 				{/if}
 
 				{#if editId === t.id}
@@ -915,7 +1065,8 @@
 								const changed =
 									!!cur &&
 									(editVal.trim() !== cur.text ||
-										editDesc.trim() !== (cur.description ?? ''));
+										editDesc.trim() !== (cur.description ?? '') ||
+										editCat !== cur.category_id);
 								if (changed) {
 									confirmDiscard = true;
 								} else {
@@ -939,13 +1090,16 @@
 							}, 0);
 						}}
 						>
-							<InputGroupInput
+							<InputGroupTextarea
 								bind:ref={editInput}
 								bind:value={editVal}
+								rows={1}
 								autofocus
-								autocomplete="off"
+								style="field-sizing: content;"
+								placeholder="Teks todo"
 								onkeydown={onEditKey}
-								class="h-7 min-h-7 px-2 pt-1.5 pb-0.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-transparent [&]:pt-1.5 [&]:pb-0.5"
+								oninput={(e: Event) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
+								class="min-h-7 py-1 px-2 text-xs max-h-32 text-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/60 border-0 shadow-none resize-none [&]:pt-1 [&]:pb-1"
 							/>
 							{#if showEditDesc}
 								<InputGroupTextarea
@@ -993,6 +1147,33 @@
 								<Tooltip.Root>
 									<Tooltip.Trigger>
 										{#snippet child({ props })}
+											<Button
+												{...props}
+												variant="ghost"
+												size="icon-xs"
+												onclick={() => insertCopyTag('edit')}
+												class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
+											>
+												<Copy class="size-3" />
+											</Button>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>Sisipkan [copy]...[/copy] untuk teks clipboard</Tooltip.Content>
+								</Tooltip.Root>
+								<CategorySelect
+									{cats}
+									value={editCat}
+									placeholder="Kategori"
+									class="shrink-0"
+									triggerClass="h-6 w-auto max-w-48 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
+									onSelect={(id) => {
+										if (id !== null) editCat = id;
+									}}
+									{onOpenAddCategory}
+								/>
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
 											<InputGroupButton
 												{...props}
 												variant="default"
@@ -1010,234 +1191,303 @@
 							</InputGroupAddon>
 						</InputGroup>
 				{:else}
+					{@const catItem = byId(t.category_id)}
+					{@const catLabel = catItem?.name ?? (t.deleted ? '' : 'Tanpa kategori')}
 					<div class="flex min-w-0 flex-1 flex-col gap-1">
-						{#if t.deleted}
-							<div>
-								<Badge
-									variant="outline"
-									class={cn('max-w-32 truncate text-[10px] font-semibold', getBadgeCls(byId(t.category_id)?.color))}
-								>
-									{byId(t.category_id)?.name ?? ''}
-								</Badge>
-							</div>
-						{:else}
-							<div>
-								<Badge
-									variant="outline"
-									class={cn('max-w-32 truncate text-[10px] font-semibold', getBadgeCls(byId(t.category_id)?.color))}
-								>
-									{byId(t.category_id)?.name ?? 'Tanpa kategori'}
-								</Badge>
+						{#if catLabel || t.status_updated_at || t.created_at}
+							<div class="flex items-center gap-1.5 flex-wrap min-w-0">
+								{#if catLabel}
+									<Badge
+										variant="outline"
+										class={cn(
+											'max-w-[70%] whitespace-normal h-auto py-0.5 px-2 text-left text-[10px] font-semibold leading-tight break-words [overflow-wrap:anywhere]',
+											getBadgeCls(catItem?.color)
+										)}
+									>
+										{catLabel}
+									</Badge>
+								{/if}
+								{#if t.status_updated_at || t.created_at}
+									{@const eventTime = t.status_updated_at || t.created_at}
+									{@const dateText = formatTaskDate(eventTime)}
+									{#if dateText}
+										<Tooltip.Root>
+											<Tooltip.Trigger>
+												{#snippet child({ props })}
+													<Badge
+														{...props}
+														variant="secondary"
+														class="h-auto py-0.5 px-1.5 text-[10px] font-medium leading-tight shrink-0 border border-border/40 bg-muted/60 text-muted-foreground hover:bg-muted select-none tabular-nums cursor-default"
+													>
+														{dateText}
+													</Badge>
+												{/snippet}
+											</Tooltip.Trigger>
+											<Tooltip.Content>
+												{getTaskEventTooltip(t.status, t.status_updated_at, t.created_at)}
+											</Tooltip.Content>
+										</Tooltip.Root>
+									{/if}
+								{/if}
 							</div>
 						{/if}
-						<Tooltip.Root
-							disabled={!selectMode && !isExpanded && !truncState[t.id]?.t && !truncState[t.id]?.d}
-						>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										{...props}
-										class={cn(
-											'min-w-0 flex flex-col gap-0.5 text-left [overflow-wrap:anywhere]',
-											(truncState[t.id]?.t || truncState[t.id]?.d) && 'cursor-pointer',
-											t.done && 'text-muted-foreground line-through',
-											t.deleted && 'text-muted-foreground'
-										)}
-										onclick={(e) => {
-											if (selectMode) return;
-											toggleExpand(t.id);
-										}}
-									>
-										<span
-											use:trackTrunc={{ id: t.id, kind: 't' }}
-											class={cn('text-xs select-none transition-all', isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate')}
+						<div class="flex items-start justify-between gap-1.5 min-w-0">
+							<Tooltip.Root
+								disabled={selectMode || t.deleted}
+							>
+								<Tooltip.Trigger class="min-w-0 flex-1 text-left">
+									{#snippet child({ props })}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											{...props}
+											class={cn(
+												'min-w-0 flex flex-col gap-0.5 text-left [overflow-wrap:anywhere] flex-1 cursor-text',
+												(t.done || t.status === 'done') && 'text-muted-foreground line-through',
+												t.deleted && 'text-muted-foreground'
+											)}
+											ondblclick={(e) => {
+												e.stopPropagation();
+												if (!selectMode && !t.deleted) startEdit(t);
+											}}
 										>
-											{t.text}
-										</span>
-										{#if t.description}
-											{#if isExpanded}
-												<div class="mt-1 rounded-md border bg-muted/40 p-1.5 text-[11px] leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere] whitespace-pre-wrap select-text">
-													{t.description}
-												</div>
-											{:else}
-												<button
-													type="button"
-													use:trackTrunc={{ id: t.id, kind: 'd' }}
-													class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground"
-													onclick={(e) => {
-														e.stopPropagation();
-														if (selectMode) return;
-														skipEditClose = true;
-														startEdit(t);
-														setTimeout(() => {
-															editDescInput?.focus();
-															skipEditClose = false;
-														}, 0);
-													}}
-												>
-													{t.description}
-												</button>
+											<span
+												use:trackTrunc={{ id: t.id, kind: 't' }}
+												class={cn(
+													'text-xs select-none transition-all',
+													isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate'
+												)}
+											>
+												<CopyableText text={t.text} />
+											</span>
+											{#if t.description}
+												{#if isExpanded}
+													<div class="mt-1 rounded-md border bg-muted/40 p-1.5 text-[11px] leading-relaxed text-muted-foreground break-words [overflow-wrap:anywhere] whitespace-pre-wrap select-text">
+														<CopyableText text={t.description} />
+													</div>
+												{:else}
+													<button
+														type="button"
+														use:trackTrunc={{ id: t.id, kind: 'd' }}
+														class="truncate text-left text-[10px] leading-tight text-muted-foreground/80 hover:text-foreground cursor-pointer"
+														onclick={(e) => {
+															e.stopPropagation();
+															if (selectMode) return;
+															skipEditClose = true;
+															startEdit(t);
+															setTimeout(() => {
+																editDescInput?.focus();
+																skipEditClose = false;
+															}, 0);
+														}}
+													>
+														<CopyableText text={t.description} />
+													</button>
+												{/if}
 											{/if}
-										{/if}
-									</div>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>{selectMode ? 'Klik untuk menandai' : isExpanded ? 'Klik untuk ringkas' : 'Klik untuk buka'}</Tooltip.Content>
-						</Tooltip.Root>
+										</div>
+									{/snippet}
+								</Tooltip.Trigger>
+								<Tooltip.Content>Klik 2x untuk edit</Tooltip.Content>
+							</Tooltip.Root>
+
+							{#if truncState[t.id]?.t || !!t.description || isExpanded}
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props: chevronProps })}
+											<button
+												{...chevronProps}
+												type="button"
+												onclick={(e) => {
+													e.stopPropagation();
+													toggleExpand(t.id);
+												}}
+												class="size-5 shrink-0 rounded-md p-0.5 text-muted-foreground/60 hover:text-foreground hover:bg-muted/70 transition-colors inline-flex items-center justify-center cursor-pointer -mt-0.5"
+											>
+												<ChevronDown class={cn('size-3.5 transition-transform duration-200', isExpanded && 'rotate-180')} />
+											</button>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>{isExpanded ? 'Ringkas teks' : 'Perluas teks'}</Tooltip.Content>
+								</Tooltip.Root>
+							{/if}
+						</div>
 					</div>
 
 					{#if !selectMode}
-						{#if tab === 'deleted'}
-							<Tooltip.Root>
-								<Tooltip.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="outline" size="xs" onclick={() => onRestore(t)}>
-											<RotateCcw class="size-3.5" />
-										</Button>
-									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Pulihkan</Tooltip.Content>
-							</Tooltip.Root>
+						<div class="flex items-center gap-1 shrink-0 mt-0.5">
+							{#if tab === 'deleted'}
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
+											<Button {...props} variant="outline" size="icon-xs" class="rounded-md" onclick={() => onRestore(t)}>
+												<RotateCcw class="size-3.5" />
+											</Button>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>Pulihkan</Tooltip.Content>
+								</Tooltip.Root>
 
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="xs">
-											<Ellipsis class="size-3.5" />
-										</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
-									<DropdownMenu.Item
-										onclick={() => (detailTask = t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Eye class="size-3.5" /> Lihat Detail
-									</DropdownMenu.Item>
-									<DropdownMenu.Separator />
-									<DropdownMenu.Item
-										onclick={() => onHardDelete(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
-									>
-										<Trash class="size-3.5" /> Hapus Permanen
-									</DropdownMenu.Item>
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						{:else if tab === 'done'}
-							<Tooltip.Root>
-								<Tooltip.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="xs" onclick={() => onToggleDone(t)}>
-											<Undo2 class="size-3.5" />
-										</Button>
-									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Kembalikan ke Todo</Tooltip.Content>
-							</Tooltip.Root>
-
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="xs">
-											<Ellipsis class="size-3.5" />
-										</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
-									<DropdownMenu.Item
-										onclick={() => (detailTask = t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Eye class="size-3.5" /> Lihat Detail
-									</DropdownMenu.Item>
-									{#if onDuplicateTask}
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger>
+										{#snippet child({ props })}
+											<Button {...props} variant="ghost" size="icon-xs" class="rounded-md">
+												<Ellipsis class="size-3.5" />
+											</Button>
+										{/snippet}
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
 										<DropdownMenu.Item
-											onclick={() => onDuplicateTask(t)}
+											onclick={() => (detailTask = t)}
 											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 										>
-											<Copy class="size-3.5" /> Duplikat
+											<Eye class="size-3.5" /> Lihat Detail
 										</DropdownMenu.Item>
-									{/if}
-									<DropdownMenu.Item
-										onclick={() => onMoveTaskCategory(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Tags class="size-3.5" /> Ganti Kategori
-									</DropdownMenu.Item>
-									<DropdownMenu.Separator />
-									<DropdownMenu.Item
-										onclick={() => onSoftDelete(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
-									>
-										<Trash class="size-3.5" /> Hapus
-									</DropdownMenu.Item>
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						{:else}
-							<Tooltip.Root>
-								<Tooltip.Trigger>
-									{#snippet child({ props })}
-										<Button
-											{...props}
-											variant="outline"
-											size="xs"
-											onclick={() => onToggleDone(t)}
-											class="border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400 dark:hover:bg-emerald-900/60"
-										>
-											<Check class="size-3.5" />
-										</Button>
-									{/snippet}
-								</Tooltip.Trigger>
-								<Tooltip.Content>Tandai selesai</Tooltip.Content>
-							</Tooltip.Root>
-
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Button {...props} variant="ghost" size="xs">
-											<Ellipsis class="size-3.5" />
-										</Button>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end" class="min-w-36 rounded-lg p-1 shadow-lg border border-border">
-									<DropdownMenu.Item
-										onclick={() => (detailTask = t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Eye class="size-3.5" /> Lihat Detail
-									</DropdownMenu.Item>
-									<DropdownMenu.Item
-										onclick={() => startEdit(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Pencil class="size-3.5" /> Edit Todo
-									</DropdownMenu.Item>
-									{#if onDuplicateTask}
+										<DropdownMenu.Separator />
 										<DropdownMenu.Item
-											onclick={() => onDuplicateTask(t)}
+											onclick={() => onHardDelete(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+										>
+											<Trash class="size-3.5" /> Hapus Permanen
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+							{:else}
+								{@const isDone = t.done || t.status === 'done'}
+								{@const isInProgress = !t.done && t.status === 'inprogress'}
+								{@const isTodo = !t.done && (!t.status || t.status === 'todo')}
+
+								<!-- Status Cycle Button -->
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
+											{#if isDone}
+												<Button
+													{...props}
+													variant="ghost"
+													size="icon-xs"
+													class="rounded-md text-muted-foreground hover:text-foreground"
+													onclick={(e) => e.stopPropagation()}
+													ondblclick={(e) => {
+														e.stopPropagation();
+														cycleTaskStatus(t);
+													}}
+												>
+													<Undo2 class="size-3.5" />
+												</Button>
+											{:else if isInProgress}
+												<Button
+													{...props}
+													variant="outline"
+													size="icon-xs"
+													class="rounded-md border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900/60"
+													onclick={(e) => e.stopPropagation()}
+													ondblclick={(e) => {
+														e.stopPropagation();
+														cycleTaskStatus(t);
+													}}
+												>
+													<Clock class="size-3.5" />
+												</Button>
+											{:else}
+												<Button
+													{...props}
+													variant="outline"
+													size="icon-xs"
+													class="rounded-md border-border text-muted-foreground/70 hover:text-primary hover:border-primary/50"
+													onclick={(e) => e.stopPropagation()}
+													ondblclick={(e) => {
+														e.stopPropagation();
+														cycleTaskStatus(t);
+													}}
+												>
+													<CircleDashed class="size-3.5" />
+												</Button>
+											{/if}
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>
+										{isDone ? 'Klik 2x: Kembalikan ke Todo' : isInProgress ? 'Klik 2x: Tandai Selesai' : 'Klik 2x: Mulai In Progress'}
+									</Tooltip.Content>
+								</Tooltip.Root>
+
+								<!-- Dropdown Menu -->
+								<DropdownMenu.Root>
+									<DropdownMenu.Trigger>
+										{#snippet child({ props })}
+											<Button {...props} variant="ghost" size="icon-xs" class="rounded-md">
+												<Ellipsis class="size-3.5" />
+											</Button>
+										{/snippet}
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content align="end" class="min-w-40 rounded-lg p-1 shadow-lg border border-border">
+										<DropdownMenu.Item
+											onclick={() => (detailTask = t)}
 											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 										>
-											<Copy class="size-3.5" /> Duplikat
+											<Eye class="size-3.5" /> Lihat Detail
 										</DropdownMenu.Item>
-									{/if}
-									<DropdownMenu.Item
-										onclick={() => onMoveTaskCategory(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
-									>
-										<Tags class="size-3.5" /> Ganti Kategori
-									</DropdownMenu.Item>
-									<DropdownMenu.Separator />
-									<DropdownMenu.Item
-										onclick={() => onSoftDelete(t)}
-										class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
-									>
-										<Trash class="size-3.5" /> Hapus
-									</DropdownMenu.Item>
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
-						{/if}
+										{#if !isDone}
+											<DropdownMenu.Item
+												onclick={() => startEdit(t)}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Pencil class="size-3.5" /> Edit Todo
+											</DropdownMenu.Item>
+										{/if}
+
+										<DropdownMenu.Separator />
+										{#if !isTodo}
+											<DropdownMenu.Item
+												onclick={() => setStatusDirect(t, 'todo')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-blue-600 dark:text-blue-400"
+											>
+												<Circle class="size-3.5" /> Set ke Todo
+											</DropdownMenu.Item>
+										{/if}
+										{#if !isInProgress}
+											<DropdownMenu.Item
+												onclick={() => setStatusDirect(t, 'inprogress')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-amber-600 dark:text-amber-400"
+											>
+												<Clock class="size-3.5" /> Set ke In Progress
+											</DropdownMenu.Item>
+										{/if}
+										{#if !isDone}
+											<DropdownMenu.Item
+												onclick={() => setStatusDirect(t, 'done')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-emerald-600 dark:text-emerald-400"
+											>
+												<Check class="size-3.5" /> Set ke Selesai
+											</DropdownMenu.Item>
+										{/if}
+
+										<DropdownMenu.Separator />
+										{#if onDuplicateTask}
+											<DropdownMenu.Item
+												onclick={() => onDuplicateTask(t)}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Copy class="size-3.5" /> Duplikat
+											</DropdownMenu.Item>
+										{/if}
+										<DropdownMenu.Item
+											onclick={() => onMoveTaskCategory(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+										>
+											<Tags class="size-3.5" /> Ganti Kategori
+										</DropdownMenu.Item>
+										<DropdownMenu.Separator />
+										<DropdownMenu.Item
+											onclick={() => onSoftDelete(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
+										>
+											<Trash class="size-3.5" /> Hapus
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+							{/if}
+						</div>
 					{/if}
 				{/if}
 			</div>
@@ -1250,11 +1500,14 @@
 	<!-- input todo baru -->
 	<footer class="p-2">
 		<InputGroup class="h-auto rounded-xl border border-input/60 bg-card shadow-xs transition-colors overflow-hidden p-1 gap-0.5">
-			<InputGroupInput
+			<InputGroupTextarea
+				bind:ref={newTextInput}
 				bind:value={newText}
+				rows={1}
+				style="field-sizing: content;"
 				placeholder="Tulis todo baru..."
-				autocomplete="off"
-				class="h-7 min-h-7 px-2 pt-1.5 pb-0.5 text-xs text-foreground placeholder:text-muted-foreground/60 focus:bg-transparent [&]:pt-1.5 [&]:pb-0.5"
+				class="min-h-7 py-1 px-2 text-xs max-h-32 text-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/60 border-0 shadow-none resize-none [&]:pt-1 [&]:pb-1"
+				oninput={(e: Event) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
 				onkeydown={(e: KeyboardEvent) => {
 					if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
 						e.preventDefault();
@@ -1311,6 +1564,22 @@
 						{showDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
 					</Tooltip.Content>
 				</Tooltip.Root>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-xs"
+								onclick={() => insertCopyTag('new')}
+								class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
+							>
+								<Copy class="size-3" />
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Sisipkan [copy]...[/copy] untuk teks clipboard</Tooltip.Content>
+				</Tooltip.Root>
 				<CategorySelect
 					{cats}
 					value={newCat}
@@ -1362,9 +1631,18 @@
 		{cats}
 		onDuplicate={onDuplicateTask}
 		onToggleDone={onToggleDone}
+		onSetStatus={onSetTaskStatus}
 		onDelete={onSoftDelete}
 		onRestore={onRestore}
 		onHardDelete={onHardDelete}
 		onStartEdit={(t) => startEdit(t)}
+	/>
+
+	<ProjectDetailDialog
+		bind:open={showSpaceDetail}
+		project={activeProjectItem ?? null}
+		{tasks}
+		onEditProject={onOpenEditProject}
+		onSetStatus={onSetProjectStatus}
 	/>
 </div>

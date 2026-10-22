@@ -13,6 +13,7 @@
 		THEME_KEY,
 		EXPORT_DIR_KEY,
 		type Task,
+		type TaskStatus,
 		type Category,
 		type Project,
 		type Tab,
@@ -294,6 +295,13 @@
 		}, 'default');
 	}
 
+	async function handleSetTaskStatus(id: number, status: TaskStatus) {
+		await invoke('set_task_status', { id, status });
+		await refresh();
+		const label = status === 'inprogress' ? 'In Progress' : status === 'done' ? 'Selesai' : 'Todo';
+		toast.success(`Status diubah ke ${label}`);
+	}
+
 	function handleSoftDelete(t: Task) {
 		askConfirm(`Hapus "${t.text}"? Bisa dipulihkan di tab Dihapus.`, async () => {
 			await invoke('soft_delete', { id: t.id });
@@ -327,6 +335,15 @@
 			toast.success(done ? `${ids.length} todo ditandai selesai` : `${ids.length} todo dikembalikan ke daftar todo`);
 			onSuccess?.();
 		}, 'default');
+	}
+
+	async function handleBatchSetTaskStatus(ids: number[], status: TaskStatus, onSuccess?: () => void) {
+		if (ids.length === 0) return;
+		await invoke('set_task_status_batch', { ids, status });
+		await refresh();
+		const label = status === 'inprogress' ? 'In Progress' : status === 'done' ? 'Selesai' : 'Todo';
+		toast.success(`${ids.length} todo diubah ke ${label}`);
+		onSuccess?.();
 	}
 
 	function handleBatchSoftDelete(ids: number[], onSuccess?: () => void) {
@@ -477,6 +494,8 @@
 			onUpdateTask={handleUpdateTask}
 			onDuplicateTask={handleDuplicateTask}
 			onToggleDone={handleToggleDone}
+			onSetTaskStatus={handleSetTaskStatus}
+			onSetTaskStatusBatch={handleBatchSetTaskStatus}
 			onSetDoneBatch={handleBatchSetDone}
 			onSoftDelete={handleSoftDelete}
 			onSoftDeleteBatch={handleBatchSoftDelete}
@@ -486,6 +505,11 @@
 			onHardDeleteBatch={handleBatchHardDelete}
 			onMoveTaskCategory={(t) => (moveTask = t)}
 			onReorderTasks={handleReorderTasks}
+			onOpenEditProject={() => {
+				editingProject = activeProjectItem ?? null;
+				projectDialogMode = 'edit';
+			}}
+			onSetProjectStatus={setProjectStatus}
 		/>
 	{/if}
 {/if}

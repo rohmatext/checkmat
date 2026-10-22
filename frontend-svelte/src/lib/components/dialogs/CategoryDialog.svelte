@@ -36,6 +36,10 @@
 	async function submitCat() {
 		const name = catName.trim();
 		if (!name) return;
+		if (name.length > 50) {
+			catErr = 'Nama kategori maksimal 50 karakter';
+			return;
+		}
 		try {
 			if (mode === 'add') {
 				if (projectId === null) return;
@@ -75,13 +79,20 @@
 			</Dialog.Description>
 		</Dialog.Header>
 		<!-- svelte-ignore a11y_autofocus -->
-		<Input
-			bind:value={catName}
-			autofocus
-			placeholder="Nama kategori"
-			class="h-8 text-xs"
-			onkeydown={(e) => e.key === 'Enter' && submitCat()}
-		/>
+		<div class="space-y-1">
+			<Input
+				bind:value={catName}
+				autofocus
+				maxlength={50}
+				placeholder="Nama kategori"
+				class="h-8 text-xs"
+				onkeydown={(e) => e.key === 'Enter' && submitCat()}
+			/>
+			<div class="flex justify-between items-center text-[10px] text-muted-foreground px-0.5">
+				<span>{catErr ? '' : 'Maksimal 50 karakter'}</span>
+				<span class={catName.length >= 50 ? 'text-destructive font-medium' : ''}>{catName.length}/50</span>
+			</div>
+		</div>
 		<div class="flex flex-wrap gap-1.5">
 			{#each PALETTE as c}
 				<Tooltip.Root>

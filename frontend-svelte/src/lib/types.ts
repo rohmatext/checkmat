@@ -1,12 +1,24 @@
+export type TaskStatus = 'todo' | 'inprogress' | 'done';
+
 export type Task = {
 	id: number;
 	text: string;
 	description?: string;
 	done: boolean;
+	status?: TaskStatus;
 	deleted: boolean;
 	pos: number;
 	category_id: number;
 	project_id: number;
+	created_at?: string;
+	status_updated_at?: string;
+};
+
+export type TaskEvent = {
+	id: number;
+	task_id: number;
+	status: TaskStatus;
+	created_at: string;
 };
 
 export type Category = {
@@ -26,7 +38,7 @@ export type Project = {
 	pos?: number;
 };
 
-export type Tab = 'active' | 'done' | 'deleted';
+export type Tab = 'todo' | 'active' | 'inprogress' | 'done' | 'deleted';
 export type Page = 'home' | 'tasks' | 'categories' | 'about';
 export type SortField = 'cat_pos' | 'pos' | 'category' | 'id' | 'text';
 export type SortDir = 'asc' | 'desc';
@@ -57,4 +69,82 @@ export function getBadgeCls(color?: string): string {
 
 export function getSolidCls(color?: string): string {
 	return TONE[color ?? '']?.solid ?? 'bg-gray-400';
+}
+
+export function formatTaskDate(raw?: string): string {
+	if (!raw) return '';
+	let d: Date;
+	const num = Number(raw);
+	if (!isNaN(num) && num > 0) {
+		d = new Date(num > 1e11 ? num : num * 1000);
+	} else {
+		d = new Date(raw);
+	}
+	if (isNaN(d.getTime())) return '';
+
+	const now = new Date();
+	const isToday =
+		d.getDate() === now.getDate() &&
+		d.getMonth() === now.getMonth() &&
+		d.getFullYear() === now.getFullYear();
+
+	if (isToday) {
+		const h = String(d.getHours()).padStart(2, '0');
+		const m = String(d.getMinutes()).padStart(2, '0');
+		return `${h}:${m}`;
+	}
+
+	const yesterday = new Date(now);
+	yesterday.setDate(now.getDate() - 1);
+	const isYesterday =
+		d.getDate() === yesterday.getDate() &&
+		d.getMonth() === yesterday.getMonth() &&
+		d.getFullYear() === yesterday.getFullYear();
+
+	if (isYesterday) {
+		return 'Kemarin';
+	}
+
+	const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+	const day = d.getDate();
+	const month = months[d.getMonth()];
+
+	if (d.getFullYear() === now.getFullYear()) {
+		return `${day} ${month}`;
+	}
+	const yearShort = String(d.getFullYear()).slice(-2);
+	return `${day} ${month} '${yearShort}`;
+}
+
+export function formatFullDate(raw?: string): string {
+	if (!raw) return '';
+	let d: Date;
+	const num = Number(raw);
+	if (!isNaN(num) && num > 0) {
+		d = new Date(num > 1e11 ? num : num * 1000);
+	} else {
+		d = new Date(raw);
+	}
+	if (isNaN(d.getTime())) return '';
+	return d.toLocaleString('id-ID', {
+		day: 'numeric',
+		month: 'short',
+		year: 'numeric',
+		hour: '2-digit',
+		minute: '2-digit'
+	});
+}
+
+export function getTaskEventTooltip(status?: TaskStatus, dateStr?: string, createdStr?: string): string {
+	const eventTime = dateStr || createdStr;
+	const fullDate = formatFullDate(eventTime);
+	if (!fullDate) return '';
+	if (status === 'inprogress') {
+		return `Mulai In Progress: ${fullDate}`;
+	} else if (status === 'done') {
+		return `Selesai: ${fullDate}`;
+	} else {
+		const isSame = !dateStr || dateStr === createdStr;
+		return isSame ? `Dibuat: ${fullDate}` : `Kembali ke Todo: ${fullDate}`;
+	}
 }
