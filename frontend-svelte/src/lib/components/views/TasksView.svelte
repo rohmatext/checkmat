@@ -122,7 +122,6 @@
 	let editId = $state<number | null>(null);
 	let editVal = $state('');
 	let editDesc = $state('');
-	let editCat = $state<number | null>(null);
 	let showEditDesc = $state(false);
 	let editInput: HTMLInputElement | null = $state(null);
 	let editDescInput: HTMLTextAreaElement | null = $state(null);
@@ -330,7 +329,6 @@
 		editId = t.id;
 		editVal = t.text;
 		editDesc = t.description ?? '';
-		editCat = t.category_id;
 		showEditDesc = !!t.description;
 		skipEditClose = false;
 		if (showEditDesc) {
@@ -352,14 +350,8 @@
 		if (!t) return;
 		const val = editVal.trim();
 		const desc = editDesc.trim();
-		if (
-			save &&
-			val &&
-			(val !== t.text ||
-				desc !== (t.description ?? '') ||
-				editCat !== t.category_id)
-		) {
-			await onUpdateTask(t.id, val, editCat ?? t.category_id, desc || undefined);
+		if (save && val && (val !== t.text || desc !== (t.description ?? ''))) {
+			await onUpdateTask(t.id, val, t.category_id, desc || undefined);
 		}
 	}
 
@@ -902,8 +894,7 @@
 								const changed =
 									!!cur &&
 									(editVal.trim() !== cur.text ||
-										editDesc.trim() !== (cur.description ?? '') ||
-										editCat !== cur.category_id);
+										editDesc.trim() !== (cur.description ?? ''));
 								if (changed) {
 									confirmDiscard = true;
 								} else {
@@ -978,17 +969,6 @@
 										{showEditDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
 									</Tooltip.Content>
 								</Tooltip.Root>
-								<CategorySelect
-									{cats}
-									value={editCat}
-									placeholder="Kategori"
-									class="shrink-0"
-									triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
-									onSelect={(id) => {
-										if (id !== null) editCat = id;
-									}}
-									{onOpenAddCategory}
-								/>
 								<Tooltip.Root>
 									<Tooltip.Trigger>
 										{#snippet child({ props })}
@@ -1021,31 +1001,12 @@
 							</div>
 						{:else}
 							<div>
-								<Tooltip.Root>
-									<Tooltip.Trigger>
-										{#snippet child({ props })}
-											<button
-												{...props}
-												type="button"
-												onclick={(e) => {
-													if (!selectMode) {
-														e.stopPropagation();
-														onMoveTaskCategory(t);
-													}
-												}}
-												class="max-w-32 cursor-pointer"
-											>
-												<Badge
-													variant="outline"
-													class={cn('max-w-32 truncate text-[10px] font-semibold hover:opacity-75', getBadgeCls(byId(t.category_id)?.color))}
-												>
-													{byId(t.category_id)?.name ?? 'Tanpa kategori'}
-												</Badge>
-											</button>
-										{/snippet}
-									</Tooltip.Trigger>
-									<Tooltip.Content>Ganti kategori</Tooltip.Content>
-								</Tooltip.Root>
+								<Badge
+									variant="outline"
+									class={cn('max-w-32 truncate text-[10px] font-semibold', getBadgeCls(byId(t.category_id)?.color))}
+								>
+									{byId(t.category_id)?.name ?? 'Tanpa kategori'}
+								</Badge>
 							</div>
 						{/if}
 						<Tooltip.Root>
@@ -1063,10 +1024,6 @@
 										onclick={(e) => {
 											if (selectMode) return;
 											toggleExpand(t.id);
-										}}
-										ondblclick={(e) => {
-											e.stopPropagation();
-											if (!selectMode) startEdit(t);
 										}}
 									>
 										<span class={cn('text-xs select-none transition-all', isExpanded ? 'break-words [overflow-wrap:anywhere] whitespace-pre-wrap leading-relaxed' : 'truncate')}>
@@ -1099,7 +1056,7 @@
 									</div>
 								{/snippet}
 							</Tooltip.Trigger>
-							<Tooltip.Content>{selectMode ? 'Klik untuk menandai' : isExpanded ? 'Klik untuk ringkas • Klik 2x edit' : 'Klik untuk buka • Klik 2x edit'}</Tooltip.Content>
+							<Tooltip.Content>{selectMode ? 'Klik untuk menandai' : isExpanded ? 'Klik untuk ringkas' : 'Klik untuk buka'}</Tooltip.Content>
 						</Tooltip.Root>
 					</div>
 
@@ -1331,7 +1288,7 @@
 					value={newCat}
 					placeholder="Kategori"
 					class="shrink-0"
-					triggerClass="h-6 max-w-28 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
+					triggerClass="h-6 w-auto max-w-48 border-0 bg-transparent px-2 text-[11px] shadow-none hover:bg-accent/60 rounded-full"
 					onSelect={(id) => {
 						if (id !== null) newCat = id;
 					}}
