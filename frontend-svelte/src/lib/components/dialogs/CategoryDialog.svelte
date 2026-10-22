@@ -72,9 +72,9 @@
 
 <Dialog.Root open={mode !== null} onOpenChange={(open) => { if (!open) mode = null; }}>
 	<Dialog.Content class="max-w-xs gap-4 p-4">
-		<Dialog.Header class="gap-1">
+		<Dialog.Header class="gap-1 text-left">
 			<Dialog.Title class="text-sm font-semibold">{mode === 'add' ? 'Tambah kategori' : 'Ganti nama kategori'}</Dialog.Title>
-			<Dialog.Description class="text-xs">
+			<Dialog.Description class="text-xs break-words [overflow-wrap:anywhere]">
 				{mode === 'add' ? 'Kategori baru langsung dipakai.' : `Nama sekarang: ${category?.name ?? ''}`}
 			</Dialog.Description>
 		</Dialog.Header>
@@ -117,7 +117,7 @@
 		{#if catErr}
 			<p class="text-xs text-destructive">{catErr}</p>
 		{/if}
-		<Dialog.Footer class="gap-1.5">
+		<Dialog.Footer class="gap-1.5 flex-wrap">
 			<Dialog.Close class={buttonVariants({ variant: 'outline', size: 'sm' })}>Batal</Dialog.Close>
 			<Button size="sm" onclick={submitCat}>Simpan</Button>
 		</Dialog.Footer>

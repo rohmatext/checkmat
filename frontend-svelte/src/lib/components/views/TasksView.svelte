@@ -2,6 +2,7 @@
 	import {
 		ArrowLeft,
 		FolderOpen,
+		FolderInput,
 		Tags,
 		Pencil,
 		Trash,
@@ -28,8 +29,12 @@
 		ChevronDown,
 		Clock,
 		Circle,
+		CircleCheck,
 		CircleDashed,
-		CircleDot
+		CircleDashedCheck,
+		CircleDot,
+		ArrowLeftRight,
+		ShieldCheck
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import {
@@ -49,6 +54,9 @@
 	import TaskDetailDialog from '#lib/components/dialogs/TaskDetailDialog.svelte';
 	import ProjectDetailDialog from '#lib/components/dialogs/ProjectDetailDialog.svelte';
 	import CopyableText from '#lib/components/CopyableText.svelte';
+	import BatchMoveCategoryDialog from '#lib/components/dialogs/BatchMoveCategoryDialog.svelte';
+	import TaskCompareDialog from '#lib/components/dialogs/TaskCompareDialog.svelte';
+	import CustomContextMenu from '#lib/components/CustomContextMenu.svelte';
 	import { formatFullDate, formatTaskDate, getBadgeCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
@@ -85,11 +93,15 @@
 		onRestoreBatch,
 		onHardDelete,
 		onHardDeleteBatch,
+		onDuplicateBatch,
+		onSetCategoryBatch,
 		onMoveTaskCategory,
 		onReorderTasks,
 		onOpenAbout,
+		onOpenSecuritySettings,
 		onOpenEditProject,
-		onSetProjectStatus
+		onSetProjectStatus,
+		onRefreshTasks
 	}: {
 		tasks: Task[];
 		cats: Category[];
@@ -123,11 +135,15 @@
 		onRestoreBatch?: (ids: number[], onSuccess?: () => void) => Promise<void>;
 		onHardDelete: (t: Task) => void;
 		onHardDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
+		onDuplicateBatch?: (ids: number[], onSuccess?: () => void) => void;
+		onSetCategoryBatch?: (ids: number[], categoryId: number, onSuccess?: () => void) => void;
 		onMoveTaskCategory: (t: Task) => void;
 		onReorderTasks: (ids: number[]) => Promise<void>;
 		onOpenAbout?: () => void;
+		onOpenSecuritySettings?: () => void;
 		onOpenEditProject?: () => void;
 		onSetProjectStatus?: (id: number, status: ProjectStatus) => void;
+		onRefreshTasks?: () => Promise<void> | void;
 	} = $props();
 
 	let newText = $state('');
@@ -149,6 +165,38 @@
 	let detailTask = $state<Task | null>(null);
 	let showSpaceDetail = $state(false);
 	let truncState = $state<Record<number, { t: boolean; d: boolean }>>({});
+	let contextMenuState = $state<{
+		type: 'task' | 'background';
+		task?: Task;
+		x: number;
+		y: number;
+	} | null>(null);
+
+	function handleTaskContextMenu(e: MouseEvent, t: Task) {
+		if (selectMode) return;
+		e.preventDefault();
+		e.stopPropagation();
+		contextMenuState = {
+			type: 'task',
+			task: t,
+			x: e.clientX,
+			y: e.clientY
+		};
+	}
+
+	function handleBgContextMenu(e: MouseEvent) {
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('input, textarea, button, [role="button"], [role="menuitem"]')) {
+			return;
+		}
+		e.preventDefault();
+		e.stopPropagation();
+		contextMenuState = {
+			type: 'background',
+			x: e.clientX,
+			y: e.clientY
+		};
+	}
 
 	// Deteksi teks yang terpotong ellipsis (judul / deskripsi) supaya expand
 	// hanya offers saat memang ada yang terpotong.
@@ -238,6 +286,12 @@
 	// Batch selection state
 	let selectMode = $state(false);
 	let selectedIds = $state<number[]>([]);
+	let batchCategoryDialogOpen = $state(false);
+
+	// Compare tasks state
+	let compareOpen = $state(false);
+	let compareTaskA = $state<Task | null>(null);
+	let compareTaskB = $state<Task | null>(null);
 
 	$effect(() => {
 		// Reset pilihan saat tab atau kategori aktif berubah
@@ -429,6 +483,52 @@
 				selectedIds = [];
 			});
 		}
+	}
+
+	function handleBatchDuplicateAction() {
+		if (selectedIds.length === 0) return;
+		const ids = [...selectedIds];
+		if (onDuplicateBatch) {
+			onDuplicateBatch(ids, () => {
+				selectedIds = [];
+			});
+		}
+	}
+
+	function handleBatchSetStatusAction(status: TaskStatus) {
+		if (selectedIds.length === 0) return;
+		const ids = [...selectedIds];
+		if (onSetTaskStatusBatch) {
+			onSetTaskStatusBatch(ids, status, () => {
+				selectedIds = [];
+			});
+		}
+	}
+
+	function handleBatchSetCategoryAction(catId: number) {
+		if (selectedIds.length === 0) return;
+		const ids = [...selectedIds];
+		if (onSetCategoryBatch) {
+			onSetCategoryBatch(ids, catId, () => {
+				selectedIds = [];
+			});
+		}
+	}
+
+	function openCompare(t: Task) {
+		compareTaskA = t;
+		compareTaskB = null;
+		compareOpen = true;
+	}
+
+	function handleBatchCompareAction() {
+		if (selectedIds.length !== 2) return;
+		const tA = tasks.find((t) => t.id === selectedIds[0]);
+		const tB = tasks.find((t) => t.id === selectedIds[1]);
+		if (!tA || !tB) return;
+		compareTaskA = tA;
+		compareTaskB = tB;
+		compareOpen = true;
 	}
 
 	function resizeTextarea(el: HTMLTextAreaElement | null) {
@@ -667,6 +767,11 @@
 					<DropdownMenu.Item onclick={onOpenCategoriesView} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
 						<Tags class="size-3.5" /> Kelola Kategori
 					</DropdownMenu.Item>
+					{#if onOpenSecuritySettings}
+						<DropdownMenu.Item onclick={onOpenSecuritySettings} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<ShieldCheck class="size-3.5 text-primary" /> Pengaturan Kunci
+						</DropdownMenu.Item>
+					{/if}
 					{#if onOpenAbout}
 						<DropdownMenu.Separator />
 						<DropdownMenu.Item onclick={onOpenAbout} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
@@ -784,6 +889,7 @@
 		class="mx-2 mt-0 flex-1 overflow-y-auto rounded-b-lg border border-border bg-card p-2"
 		ondragover={onMainDragOver}
 		ondrop={onDrop}
+		oncontextmenu={handleBgContextMenu}
 	>
 		<!-- Batch Toolbar atau Normal Baris Urutan / Tombol Pilih -->
 		{#if selectMode}
@@ -818,90 +924,122 @@
 
 				<div class="flex items-center gap-1 shrink-0">
 					{#if selectedIds.length > 0}
-						{#if tab === 'deleted'}
-							<Button
-								variant="outline"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1"
-								onclick={handleBatchRestoreAction}
-							>
-								<RotateCcw class="size-3" /> Pulihkan
-							</Button>
-							<Button
-								variant="destructive"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1"
-								onclick={handleBatchDeleteAction}
-							>
-								<Trash class="size-3" /> Hapus
-							</Button>
-						{:else}
-							{#if onSetTaskStatusBatch}
-								{#if tab !== 'active' && tab !== 'todo'}
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}
 									<Button
-										variant="outline"
+										{...props}
+										variant="default"
 										size="xs"
-										class="h-6 px-1.5 text-[10px] gap-1 text-blue-600 dark:text-blue-400 border-blue-500/40 hover:bg-blue-500/10"
-										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'todo', () => (selectedIds = []))}
+										class="h-6 px-2.5 text-[11px] gap-1.5 font-medium cursor-pointer shadow-sm"
 									>
-										<Circle class="size-2.5" /> Todo
+										<span>Pilih Aksi ({selectedIds.length})</span>
+										<ChevronDown class="size-3 opacity-80" />
 									</Button>
-								{/if}
-								{#if tab !== 'inprogress'}
-									<Button
-										variant="outline"
-										size="xs"
-										class="h-6 px-1.5 text-[10px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
-										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'inprogress', () => (selectedIds = []))}
+								{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content align="end" class="min-w-44 p-1 rounded-lg border border-border shadow-lg">
+								{#if tab === 'deleted'}
+									<DropdownMenu.Item
+										onclick={handleBatchRestoreAction}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 									>
-										<Clock class="size-2.5" /> In Progress
-									</Button>
-								{/if}
-								{#if tab !== 'done'}
-									<Button
-										variant="outline"
-										size="xs"
-										class="h-6 px-1.5 text-[10px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
-										onclick={() => onSetTaskStatusBatch?.(selectedIds, 'done', () => (selectedIds = []))}
+										<RotateCcw class="size-3.5 text-muted-foreground" />
+										<span>Pulihkan Todo</span>
+									</DropdownMenu.Item>
+									<DropdownMenu.Separator />
+									<DropdownMenu.Item
+										onclick={handleBatchDeleteAction}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-destructive focus:text-destructive"
 									>
-										<Check class="size-2.5" /> Selesai
-									</Button>
-								{/if}
-							{:else}
-								{#if tab === 'done'}
-									<Button
-										variant="outline"
-										size="xs"
-										class="h-6 px-2 text-[11px] gap-1 text-amber-600 dark:text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
-										onclick={handleBatchSetUndoneAction}
-									>
-										<Undo2 class="size-3" /> Ke Todo
-									</Button>
+										<Trash class="size-3.5" />
+										<span>Hapus Permanen</span>
+									</DropdownMenu.Item>
 								{:else}
-									<Button
-										variant="outline"
-										size="xs"
-										class="h-6 px-2 text-[11px] gap-1 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10"
-										onclick={handleBatchSetDoneAction}
+									{#if onSetTaskStatusBatch}
+										<div class="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+											Status
+										</div>
+										{#if tab !== 'active' && tab !== 'todo'}
+											<DropdownMenu.Item
+												onclick={() => handleBatchSetStatusAction('todo')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Circle class="size-3.5 text-blue-500" />
+												<span>Ubah ke Todo</span>
+											</DropdownMenu.Item>
+										{/if}
+										{#if tab !== 'inprogress'}
+											<DropdownMenu.Item
+												onclick={() => handleBatchSetStatusAction('inprogress')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Clock class="size-3.5 text-amber-500" />
+												<span>Ubah ke In Progress</span>
+											</DropdownMenu.Item>
+										{/if}
+										{#if tab !== 'done'}
+											<DropdownMenu.Item
+												onclick={() => handleBatchSetStatusAction('done')}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Check class="size-3.5 text-emerald-500" />
+												<span>Tandai Selesai</span>
+											</DropdownMenu.Item>
+										{/if}
+										<DropdownMenu.Separator />
+									{/if}
+									<div class="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+										Kelola
+									</div>
+									<DropdownMenu.Item
+										onclick={() => (batchCategoryDialogOpen = true)}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 									>
-										<Check class="size-3" /> Selesai
-									</Button>
+										<FolderInput class="size-3.5 text-muted-foreground" />
+										<span>Ganti Kategori...</span>
+									</DropdownMenu.Item>
+									<DropdownMenu.Item
+										onclick={handleBatchDuplicateAction}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Copy class="size-3.5 text-muted-foreground" />
+										<span>Duplikat ({selectedIds.length})</span>
+									</DropdownMenu.Item>
+									{#if selectedIds.length === 2}
+										<DropdownMenu.Item
+											onclick={handleBatchCompareAction}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-primary focus:text-primary font-medium"
+										>
+											<ArrowLeftRight class="size-3.5" />
+											<span>Bandingkan 2 Todo</span>
+										</DropdownMenu.Item>
+									{/if}
+									<DropdownMenu.Separator />
+									<DropdownMenu.Item
+										onclick={handleBatchDeleteAction}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-destructive focus:text-destructive"
+									>
+										<Trash class="size-3.5" />
+										<span>Hapus ({selectedIds.length})</span>
+									</DropdownMenu.Item>
 								{/if}
-							{/if}
-							<Button
-								variant="destructive"
-								size="xs"
-								class="h-6 px-2 text-[11px] gap-1"
-								onclick={handleBatchDeleteAction}
-							>
-								<Trash class="size-3" /> Hapus
-							</Button>
-						{/if}
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+					{:else}
+						<Button
+							variant="outline"
+							size="xs"
+							disabled
+							class="h-6 px-2 text-[11px] gap-1 opacity-50"
+						>
+							Pilih Aksi
+						</Button>
 					{/if}
 					<Button
 						variant="ghost"
 						size="xs"
-						class="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+						class="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer"
 						onclick={exitSelectMode}
 					>
 						Batal
@@ -1014,6 +1152,7 @@
 				onclick={() => {
 					if (selectMode) toggleSelect(t.id);
 				}}
+				oncontextmenu={(e) => handleTaskContextMenu(e, t)}
 				class={cn(
 					'mb-1.5 flex items-start gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
 					activeCat !== null && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
@@ -1194,7 +1333,7 @@
 					{@const catItem = byId(t.category_id)}
 					{@const catLabel = catItem?.name ?? (t.deleted ? '' : 'Tanpa kategori')}
 					<div class="flex min-w-0 flex-1 flex-col gap-1">
-						{#if catLabel || t.status_updated_at || t.created_at}
+						{#if catLabel || t.status_updated_at || t.created_at || (t.subtask_count ?? 0) > 0}
 							<div class="flex items-center gap-1.5 flex-wrap min-w-0">
 								{#if catLabel}
 									<Badge
@@ -1206,6 +1345,34 @@
 									>
 										{catLabel}
 									</Badge>
+								{/if}
+								{#if (t.subtask_count ?? 0) > 0}
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											{#snippet child({ props })}
+												<Badge
+													{...props}
+													variant="outline"
+													class={cn(
+														'h-auto py-0.5 px-1.5 text-[10px] font-medium leading-tight shrink-0 select-none tabular-nums cursor-pointer flex items-center gap-1 transition-colors',
+														t.subtask_done_count === t.subtask_count
+															? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800'
+															: 'bg-muted/60 text-muted-foreground border-border/60 hover:bg-muted hover:text-foreground'
+													)}
+													onclick={(e) => {
+														e.stopPropagation();
+														if (!selectMode) detailTask = t;
+													}}
+												>
+													<ListChecks class="size-3 shrink-0" />
+													<span>{t.subtask_done_count ?? 0}/{t.subtask_count}</span>
+												</Badge>
+											{/snippet}
+										</Tooltip.Trigger>
+										<Tooltip.Content>
+											{t.subtask_done_count ?? 0} dari {t.subtask_count} subtask selesai (klik untuk detail)
+										</Tooltip.Content>
+									</Tooltip.Root>
 								{/if}
 								{#if t.status_updated_at || t.created_at}
 									{@const eventTime = t.status_updated_at || t.created_at}
@@ -1380,28 +1547,28 @@
 													{...props}
 													variant="outline"
 													size="icon-xs"
-													class="rounded-md border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100/70 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900/60"
+													class="rounded-md border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-400 hover:text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900/60"
 													onclick={(e) => e.stopPropagation()}
 													ondblclick={(e) => {
 														e.stopPropagation();
 														cycleTaskStatus(t);
 													}}
 												>
-													<Clock class="size-3.5" />
+													<CircleCheck class="size-3.5" />
 												</Button>
 											{:else}
 												<Button
 													{...props}
 													variant="outline"
 													size="icon-xs"
-													class="rounded-md border-border text-muted-foreground/70 hover:text-primary hover:border-primary/50"
+													class="rounded-md border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-400 hover:text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400 dark:hover:bg-blue-900/60"
 													onclick={(e) => e.stopPropagation()}
 													ondblclick={(e) => {
 														e.stopPropagation();
 														cycleTaskStatus(t);
 													}}
 												>
-													<CircleDashed class="size-3.5" />
+													<CircleDashedCheck class="size-3.5" />
 												</Button>
 											{/if}
 										{/snippet}
@@ -1476,6 +1643,12 @@
 											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 										>
 											<Tags class="size-3.5" /> Ganti Kategori
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											onclick={() => openCompare(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+										>
+											<ArrowLeftRight class="size-3.5" /> Bandingkan...
 										</DropdownMenu.Item>
 										<DropdownMenu.Separator />
 										<DropdownMenu.Item
@@ -1630,12 +1803,14 @@
 		bind:task={detailTask}
 		{cats}
 		onDuplicate={onDuplicateTask}
+		onCompare={(t) => openCompare(t)}
 		onToggleDone={onToggleDone}
 		onSetStatus={onSetTaskStatus}
 		onDelete={onSoftDelete}
 		onRestore={onRestore}
 		onHardDelete={onHardDelete}
 		onStartEdit={(t) => startEdit(t)}
+		onSubtasksChange={onRefreshTasks}
 	/>
 
 	<ProjectDetailDialog
@@ -1644,5 +1819,45 @@
 		{tasks}
 		onEditProject={onOpenEditProject}
 		onSetStatus={onSetProjectStatus}
+	/>
+
+	<BatchMoveCategoryDialog
+		bind:open={batchCategoryDialogOpen}
+		count={selectedIds.length}
+		{cats}
+		onConfirm={handleBatchSetCategoryAction}
+	/>
+
+	<TaskCompareDialog
+		bind:open={compareOpen}
+		bind:taskA={compareTaskA}
+		bind:taskB={compareTaskB}
+		{tasks}
+		{cats}
+		onUpdateTask={onUpdateTask}
+		onRefreshTasks={onRefreshTasks}
+	/>
+
+	<CustomContextMenu
+		bind:menuState={contextMenuState}
+		{cats}
+		{dark}
+		projectName={activeProjectItem?.name}
+		onFocusNewInput={() => {
+			newTextInput?.focus();
+		}}
+		onOpenDetail={(t) => (detailTask = t)}
+		onStartEdit={(t) => startEdit(t)}
+		onSetStatus={(id, st) => onSetTaskStatus?.(id, st)}
+		onDuplicate={onDuplicateTask}
+		onMoveCategory={onMoveTaskCategory}
+		onCompare={(t) => openCompare(t)}
+		onDelete={onSoftDelete}
+		onToggleTheme={onToggleTheme}
+		onLockApp={onLockApp}
+		onOpenProjectPicker={onOpenProjectPicker}
+		onOpenCategoriesView={onOpenCategoriesView}
+		onOpenAbout={onOpenAbout}
+		onOpenSecuritySettings={onOpenSecuritySettings}
 	/>
 </div>

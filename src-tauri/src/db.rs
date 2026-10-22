@@ -1,4 +1,4 @@
-use rusqlite::{Connection, DatabaseName};
+use rusqlite::{Connection, DatabaseName, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tauri::Emitter;
 use std::path::{Path, PathBuf};
@@ -97,6 +97,21 @@ pub struct Task {
     pub created_at: String,
     #[serde(default)]
     pub status_updated_at: String,
+    #[serde(default)]
+    pub subtask_count: i64,
+    #[serde(default)]
+    pub subtask_done_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Subtask {
+    pub id: i64,
+    pub task_id: i64,
+    pub title: String,
+    pub done: bool,
+    pub pos: i64,
+    #[serde(default)]
+    pub created_at: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -337,9 +352,18 @@ impl Db {
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events(task_id, id ASC);",
+            CREATE INDEX IF NOT EXISTS idx_task_events_task_id ON task_events(task_id, id ASC);
+            CREATE TABLE IF NOT EXISTS subtasks(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                done INTEGER NOT NULL DEFAULT 0,
+                pos INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_subtasks_task_id ON subtasks(task_id, pos ASC, id ASC);",
         )
-        .expect("buat tabel task_events");
+        .expect("buat tabel task_events dan subtasks");
 
         conn.execute(
             "INSERT INTO task_events(task_id, status, created_at)
@@ -580,8 +604,11 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
     let c = conn(&db);
     let mut st = c
         .prepare(
-            "SELECT id, text, COALESCE(description,''), COALESCE(status, CASE WHEN done!=0 THEN 'done' ELSE 'todo' END), done, deleted, pos, category_id, project_id, COALESCE(created_at, ''), COALESCE(NULLIF(status_updated_at, ''), created_at, '') FROM tasks
-             WHERE project_id=? ORDER BY pos ASC, id DESC",
+            "SELECT t.id, t.text, COALESCE(t.description,''), COALESCE(t.status, CASE WHEN t.done!=0 THEN 'done' ELSE 'todo' END), t.done, t.deleted, t.pos, t.category_id, t.project_id, COALESCE(t.created_at, ''), COALESCE(NULLIF(t.status_updated_at, ''), t.created_at, ''),
+             COALESCE((SELECT COUNT(1) FROM subtasks s WHERE s.task_id = t.id), 0),
+             COALESCE((SELECT COUNT(1) FROM subtasks s WHERE s.task_id = t.id AND s.done != 0), 0)
+             FROM tasks t
+             WHERE t.project_id=? ORDER BY t.pos ASC, t.id DESC",
         )
         .map_err(|e| e.to_string())?;
     let rows = st
@@ -598,6 +625,8 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
                 project_id: r.get(8)?,
                 created_at: r.get(9)?,
                 status_updated_at: r.get(10)?,
+                subtask_count: r.get(11)?,
+                subtask_done_count: r.get(12)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -1106,6 +1135,112 @@ pub fn set_task_status_batch(db: tauri::State<Db>, ids: Vec<i64>, status: String
 }
 
 #[tauri::command]
+pub fn duplicate_tasks_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let t = now();
+    for id in ids {
+        let task: Option<(String, String, i64, i64)> = tx
+            .query_row(
+                "SELECT text, COALESCE(description, ''), category_id, project_id FROM tasks WHERE id=? AND deleted=0",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        if let Some((text, desc, cat_id, proj_id)) = task {
+            let pos = top_pos(&tx, false, cat_id);
+            tx.execute(
+                "INSERT INTO tasks(text, description, status, done, deleted, created_at, status_updated_at, pos, category_id, project_id)
+                 VALUES(?, ?, 'todo', 0, 0, ?, ?, ?, ?, ?)",
+                rusqlite::params![text, desc, t.clone(), t.clone(), pos, cat_id, proj_id],
+            )
+            .map_err(|e| e.to_string())?;
+            let new_task_id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO task_events(task_id, status, created_at) VALUES(?, 'todo', ?)",
+                rusqlite::params![new_task_id, t.clone()],
+            )
+            .ok();
+
+            // Duplikat subtask yang dimiliki task
+            let mut sub_st = tx
+                .prepare("SELECT title, done, pos FROM subtasks WHERE task_id=? ORDER BY pos ASC, id ASC")
+                .map_err(|e| e.to_string())?;
+            let subtasks: Vec<(String, i64, i64)> = sub_st
+                .query_map([id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            drop(sub_st);
+
+            for (st_title, st_done, st_pos) in subtasks {
+                tx.execute(
+                    "INSERT INTO subtasks(task_id, title, done, pos, created_at) VALUES(?, ?, ?, ?, ?)",
+                    rusqlite::params![new_task_id, st_title, st_done, st_pos, t.clone()],
+                )
+                .ok();
+            }
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_category_batch(
+    db: tauri::State<Db>,
+    ids: Vec<i64>,
+    category_id: i64,
+    project_id: i64,
+) -> R<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let category_project: i64 = c
+        .query_row(
+            "SELECT project_id FROM categories WHERE id=?",
+            [category_id],
+            |r| r.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if category_project != project_id {
+        return Err("Kategori bukan bagian dari space aktif".into());
+    }
+
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for id in ids {
+        let task_info: Option<(bool, i64)> = tx
+            .query_row(
+                "SELECT done != 0, category_id FROM tasks WHERE id=? AND project_id=?",
+                [id, project_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some((done, old_cat)) = task_info {
+            if old_cat != category_id {
+                let pos = top_pos(&tx, done, category_id);
+                tx.execute(
+                    "UPDATE tasks SET category_id=?, pos=? WHERE id=? AND project_id=?",
+                    rusqlite::params![category_id, pos, id, project_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn soft_delete(db: tauri::State<Db>, id: i64) -> R<()> {
     let c = conn(&db);
     c.execute(
@@ -1140,6 +1275,7 @@ pub fn restore(db: tauri::State<Db>, id: i64) -> R<()> {
 #[tauri::command]
 pub fn hard_delete(db: tauri::State<Db>, id: i64) -> R<()> {
     let c = conn(&db);
+    c.execute("DELETE FROM subtasks WHERE task_id=?", [id]).ok();
     c.execute("DELETE FROM task_events WHERE task_id=?", [id]).ok();
     c.execute("DELETE FROM tasks WHERE id=? AND deleted=1", [id])
         .map_err(|e| e.to_string())?;
@@ -1201,6 +1337,7 @@ pub fn hard_delete_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
     let mut c = conn(&db);
     let tx = c.transaction().map_err(|e| e.to_string())?;
     for id in ids {
+        tx.execute("DELETE FROM subtasks WHERE task_id=?", [id]).ok();
         tx.execute("DELETE FROM task_events WHERE task_id=?", [id]).ok();
         tx.execute("DELETE FROM tasks WHERE id=? AND deleted=1", [id])
             .map_err(|e| e.to_string())?;
@@ -1227,6 +1364,112 @@ pub fn list_task_events(db: tauri::State<Db>, task_id: i64) -> R<Vec<TaskEvent>>
         })
         .map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_subtasks(db: tauri::State<Db>, task_id: i64) -> R<Vec<Subtask>> {
+    let c = conn(&db);
+    let mut st = c
+        .prepare("SELECT id, task_id, title, done, pos, created_at FROM subtasks WHERE task_id=? ORDER BY pos ASC, id ASC")
+        .map_err(|e| e.to_string())?;
+    let rows = st
+        .query_map([task_id], |r| {
+            Ok(Subtask {
+                id: r.get(0)?,
+                task_id: r.get(1)?,
+                title: r.get(2)?,
+                done: r.get::<_, i64>(3)? != 0,
+                pos: r.get(4)?,
+                created_at: r.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn add_subtask(db: tauri::State<Db>, task_id: i64, title: String) -> R<Subtask> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Judul subtask tidak boleh kosong".into());
+    }
+    let c = conn(&db);
+    let next_pos: i64 = c
+        .query_row(
+            "SELECT COALESCE(MAX(pos), 0) + 10 FROM subtasks WHERE task_id=?",
+            [task_id],
+            |r| r.get(0),
+        )
+        .unwrap_or(10);
+    let t = now();
+    c.execute(
+        "INSERT INTO subtasks(task_id, title, done, pos, created_at) VALUES(?, ?, 0, ?, ?)",
+        rusqlite::params![task_id, title, next_pos, t.clone()],
+    )
+    .map_err(|e| e.to_string())?;
+    let id = c.last_insert_rowid();
+    save(&c, &db.path);
+    Ok(Subtask {
+        id,
+        task_id,
+        title: title.to_string(),
+        done: false,
+        pos: next_pos,
+        created_at: t,
+    })
+}
+
+#[tauri::command]
+pub fn set_subtask_done(db: tauri::State<Db>, id: i64, done: bool) -> R<()> {
+    let c = conn(&db);
+    c.execute(
+        "UPDATE subtasks SET done=? WHERE id=?",
+        rusqlite::params![done as i64, id],
+    )
+    .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn update_subtask_title(db: tauri::State<Db>, id: i64, title: String) -> R<()> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("Judul subtask tidak boleh kosong".into());
+    }
+    let c = conn(&db);
+    c.execute(
+        "UPDATE subtasks SET title=? WHERE id=?",
+        rusqlite::params![title, id],
+    )
+    .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn delete_subtask(db: tauri::State<Db>, id: i64) -> R<()> {
+    let c = conn(&db);
+    c.execute("DELETE FROM subtasks WHERE id=?", [id])
+        .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn reorder_subtasks(db: tauri::State<Db>, task_id: i64, ids: Vec<i64>) -> R<()> {
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    for (i, id) in ids.iter().enumerate() {
+        tx.execute(
+            "UPDATE subtasks SET pos=? WHERE id=? AND task_id=?",
+            rusqlite::params![(i as i64) * 10, id, task_id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
 }
 
 #[tauri::command]

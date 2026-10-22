@@ -41,9 +41,9 @@
 
 <Dialog.Root open={task !== null} onOpenChange={(open) => { if (!open) task = null; }}>
 	<Dialog.Content class="max-w-xs gap-3 p-4">
-		<Dialog.Header class="gap-1">
+		<Dialog.Header class="gap-1 text-left">
 			<Dialog.Title class="text-sm font-semibold">Ganti kategori</Dialog.Title>
-			<Dialog.Description class="text-xs [overflow-wrap:anywhere]">{task?.text ?? ''}</Dialog.Description>
+			<Dialog.Description class="text-xs break-words [overflow-wrap:anywhere] leading-snug">{task?.text ?? ''}</Dialog.Description>
 		</Dialog.Header>
 
 		{#if cats.length > 5}
@@ -79,11 +79,11 @@
 				<Button
 					variant={task?.category_id === c.id ? 'secondary' : 'outline'}
 					size="sm"
-					class="justify-start gap-2"
+					class="justify-start gap-2 min-w-0"
 					onclick={() => selectCategory(c.id)}
 				>
-					<span class={cn('size-2 rounded-full', getSolidCls(c.color))}></span>
-					<span class="truncate">{c.name}</span>
+					<span class={cn('size-2 rounded-full shrink-0', getSolidCls(c.color))}></span>
+					<span class="truncate min-w-0 flex-1 text-left">{c.name}</span>
 				</Button>
 			{/each}
 			{#if filteredCats.length === 0}
@@ -92,7 +92,7 @@
 				</p>
 			{/if}
 		</div>
-		<Dialog.Footer>
+		<Dialog.Footer class="gap-1.5 flex-wrap">
 			<Dialog.Close class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Batal</Dialog.Close>
 		</Dialog.Footer>
 	</Dialog.Content>

@@ -12,6 +12,17 @@ export type Task = {
 	project_id: number;
 	created_at?: string;
 	status_updated_at?: string;
+	subtask_count?: number;
+	subtask_done_count?: number;
+};
+
+export type Subtask = {
+	id: number;
+	task_id: number;
+	title: string;
+	done: boolean;
+	pos: number;
+	created_at?: string;
 };
 
 export type TaskEvent = {
@@ -62,6 +73,19 @@ export const SORT_FIELD_KEY = 'checkmat.sortField';
 export const SORT_DIR_KEY = 'checkmat.sortDir';
 export const THEME_KEY = 'checkmat.theme';
 export const EXPORT_DIR_KEY = 'checkmat.exportDirectory';
+export const AUTOLOCK_KEY = 'checkmat.autolock_delay';
+
+export const AUTOLOCK_OPTIONS = [
+	{ value: 'never', label: 'Tidak Pernah', desc: 'Aplikasi tidak akan terkunci otomatis saat diminimize' },
+	{ value: '0', label: 'Langsung saat Minimize', desc: 'Langsung terkunci otomatis saat jendela diminimize' },
+	{ value: '15', label: '15 Detik', desc: 'Terkunci jika diminimize lebih dari 15 detik' },
+	{ value: '30', label: '30 Detik', desc: 'Terkunci jika diminimize lebih dari 30 detik' },
+	{ value: '60', label: '1 Menit', desc: 'Terkunci jika diminimize lebih dari 1 menit (Disarankan)' },
+	{ value: '120', label: '2 Menit', desc: 'Terkunci jika diminimize lebih dari 2 menit' },
+	{ value: '300', label: '5 Menit', desc: 'Terkunci jika diminimize lebih dari 5 menit' },
+	{ value: '600', label: '10 Menit', desc: 'Terkunci jika diminimize lebih dari 10 menit' },
+	{ value: '900', label: '15 Menit', desc: 'Terkunci jika diminimize lebih dari 15 menit' }
+] as const;
 
 export function getBadgeCls(color?: string): string {
 	return TONE[color ?? '']?.badge ?? 'bg-muted text-muted-foreground border-border';

@@ -16,7 +16,8 @@
 		Archive,
 		ArchiveRestore,
 		GripVertical,
-		Info
+		Info,
+		ShieldCheck
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
@@ -36,7 +37,8 @@
 		onReorderProjects,
 		onLockApp,
 		onToggleTheme,
-		onOpenAbout
+		onOpenAbout,
+		onOpenSecuritySettings
 	}: {
 		projects: Project[];
 		dark: boolean;
@@ -48,6 +50,7 @@
 		onLockApp: () => void;
 		onToggleTheme: () => void;
 		onOpenAbout?: () => void;
+		onOpenSecuritySettings?: () => void;
 	} = $props();
 
 	let searchQuery = $state('');
@@ -165,13 +168,57 @@
 <div class="flex h-full flex-col p-3">
 	<!-- Header -->
 	<header class="flex items-center justify-between gap-2 pb-2.5">
-		<div class="min-w-0">
+		<div class="min-w-0 flex-1">
 			<h1 class="text-sm font-bold tracking-tight">Space</h1>
-			<p class="text-[11px] text-muted-foreground">Pilih space untuk membuka daftar todo.</p>
+			<p class="text-[11px] text-muted-foreground truncate">Pilih space untuk membuka daftar todo.</p>
 		</div>
-		<Button size="sm" onclick={() => onOpenProjectDialog('add')}>
-			<Plus /> Space
-		</Button>
+		<div class="flex items-center gap-1 shrink-0">
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="icon-sm" onclick={onToggleTheme}>
+							{#if dark}<Sun class="size-3.5" />{:else}<Moon class="size-3.5" />{/if}
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>{dark ? 'Mode terang' : 'Mode gelap'}</Tooltip.Content>
+			</Tooltip.Root>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="icon-sm" onclick={onLockApp}>
+							<Lock class="size-3.5" />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content>Kunci aplikasi</Tooltip.Content>
+			</Tooltip.Root>
+			<DropdownMenu.Root>
+				<DropdownMenu.Trigger>
+					{#snippet child({ props })}
+						<Button {...props} variant="outline" size="icon-sm">
+							<EllipsisVertical class="size-3.5" />
+						</Button>
+					{/snippet}
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content align="end" class="min-w-40 w-44 rounded-lg p-1 shadow-lg border border-border">
+					{#if onOpenSecuritySettings}
+						<DropdownMenu.Item onclick={onOpenSecuritySettings} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<ShieldCheck class="size-3.5 text-primary" /> Pengaturan Kunci
+						</DropdownMenu.Item>
+					{/if}
+					{#if onOpenAbout}
+						<DropdownMenu.Separator />
+						<DropdownMenu.Item onclick={onOpenAbout} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+							<Info class="size-3.5" /> Tentang Aplikasi
+						</DropdownMenu.Item>
+					{/if}
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
+			<Button size="sm" class="gap-1 shadow-xs" onclick={() => onOpenProjectDialog('add')}>
+				<Plus class="size-3.5" /> Space
+			</Button>
+		</div>
 	</header>
 
 	<!-- Search & Filter Controls -->

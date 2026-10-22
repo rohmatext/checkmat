@@ -1,11 +1,17 @@
 <script lang="ts">
-	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, X, Clock } from '@lucide/svelte';
+	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, X, Clock, ArrowLeftRight, Plus } from '@lucide/svelte';
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
+	import {
+		InputGroup,
+		InputGroupAddon,
+		InputGroupButton,
+		InputGroupInput
+	} from '#lib/components/ui/input-group/index.js';
 	import { invoke } from '@tauri-apps/api/core';
-	import { formatFullDate, getBadgeCls, getTaskEventTooltip, type Category, type Task, type TaskEvent, type TaskStatus } from '#lib/types.js';
+	import { formatFullDate, getBadgeCls, getTaskEventTooltip, type Category, type Task, type TaskEvent, type TaskStatus, type Subtask } from '#lib/types.js';
 	import CopyableText from '#lib/components/CopyableText.svelte';
 	import { cn } from '#lib/utils';
 
@@ -18,7 +24,9 @@
 		onDelete,
 		onRestore,
 		onHardDelete,
-		onStartEdit
+		onStartEdit,
+		onCompare,
+		onSubtasksChange
 	}: {
 		task: Task | null;
 		cats: Category[];
@@ -29,10 +37,20 @@
 		onRestore?: (t: Task) => void;
 		onHardDelete?: (t: Task) => void;
 		onStartEdit?: (t: Task) => void;
+		onCompare?: (t: Task) => void;
+		onSubtasksChange?: () => void;
 	} = $props();
 
 	const category = $derived(cats.find((c) => c.id === task?.category_id));
 	let events = $state<TaskEvent[]>([]);
+	let subtasks = $state<Subtask[]>([]);
+	let newSubtaskTitle = $state('');
+	let editingSubtaskId = $state<number | null>(null);
+	let editingSubtaskTitle = $state('');
+
+	const subtaskCount = $derived(subtasks.length);
+	const subtaskDoneCount = $derived(subtasks.filter((s) => s.done).length);
+	const progressPct = $derived(subtaskCount > 0 ? Math.round((subtaskDoneCount / subtaskCount) * 100) : 0);
 
 	$effect(() => {
 		if (task) {
@@ -43,15 +61,108 @@
 				.catch(() => {
 					events = [];
 				});
+
+			invoke<Subtask[]>('list_subtasks', { taskId: task.id })
+				.then((res) => {
+					subtasks = res || [];
+				})
+				.catch(() => {
+					subtasks = [];
+				});
 		} else {
 			events = [];
+			subtasks = [];
+			newSubtaskTitle = '';
+			editingSubtaskId = null;
+			editingSubtaskTitle = '';
 		}
 	});
+
+	async function handleAddSubtask() {
+		if (!task || task.deleted) return;
+		const title = newSubtaskTitle.trim();
+		if (!title) return;
+		try {
+			const added = await invoke<Subtask>('add_subtask', { taskId: task.id, title });
+			subtasks = [...subtasks, added];
+			newSubtaskTitle = '';
+			if (task) {
+				task.subtask_count = (task.subtask_count ?? 0) + 1;
+			}
+			onSubtasksChange?.();
+		} catch (e) {
+			console.error('Gagal menambah subtask:', e);
+		}
+	}
+
+	async function handleToggleSubtask(st: Subtask) {
+		if (!task) return;
+		const newDone = !st.done;
+		subtasks = subtasks.map((s) => (s.id === st.id ? { ...s, done: newDone } : s));
+		try {
+			await invoke('set_subtask_done', { id: st.id, done: newDone });
+			if (task) {
+				task.subtask_done_count = subtasks.filter((s) => s.done).length;
+			}
+			onSubtasksChange?.();
+		} catch (e) {
+			console.error('Gagal mengubah status subtask:', e);
+		}
+	}
+
+	async function handleDeleteSubtask(stId: number) {
+		if (!task) return;
+		subtasks = subtasks.filter((s) => s.id !== stId);
+		if (editingSubtaskId === stId) {
+			editingSubtaskId = null;
+			editingSubtaskTitle = '';
+		}
+		try {
+			await invoke('delete_subtask', { id: stId });
+			if (task) {
+				task.subtask_count = subtasks.length;
+				task.subtask_done_count = subtasks.filter((s) => s.done).length;
+			}
+			onSubtasksChange?.();
+		} catch (e) {
+			console.error('Gagal menghapus subtask:', e);
+		}
+	}
+
+	function handleStartEditSubtask(st: Subtask) {
+		editingSubtaskId = st.id;
+		editingSubtaskTitle = st.title;
+	}
+
+	async function handleSaveEditSubtask(st: Subtask) {
+		if (editingSubtaskId !== st.id) return;
+		const trimmed = editingSubtaskTitle.trim();
+		editingSubtaskId = null;
+		if (!trimmed || trimmed === st.title) {
+			editingSubtaskTitle = '';
+			return;
+		}
+		subtasks = subtasks.map((s) => (s.id === st.id ? { ...s, title: trimmed } : s));
+		editingSubtaskTitle = '';
+		try {
+			await invoke('update_subtask_title', { id: st.id, title: trimmed });
+			onSubtasksChange?.();
+		} catch (e) {
+			console.error('Gagal update judul subtask:', e);
+		}
+	}
 
 	function handleDuplicate() {
 		if (!task || !onDuplicate || task.deleted) return;
 		const cur = task;
 		onDuplicate(cur);
+	}
+
+	function handleCompare() {
+		if (!task || !onCompare) return;
+		const cur = task;
+		task = null;
+		onCompare(cur);
 	}
 
 	function handleToggleDone() {
@@ -93,7 +204,7 @@
 <Dialog.Root open={task !== null} onOpenChange={(open) => { if (!open) task = null; }}>
 	<Dialog.Content class="max-w-md gap-4 p-5">
 		<Dialog.Header class="gap-1.5 text-left">
-			<div class="flex items-center gap-2">
+			<div class="flex items-center gap-1.5 flex-wrap min-w-0">
 				{#if category}
 					<Badge
 						variant="outline"
@@ -120,7 +231,7 @@
 					</Badge>
 				{/if}
 				{#if task?.status_updated_at || task?.created_at}
-					<span class="text-[10px] text-muted-foreground/70 shrink-0">
+					<span class="text-[10px] text-muted-foreground/70 break-words [overflow-wrap:anywhere]">
 						· {getTaskEventTooltip(task.status, task.status_updated_at, task.created_at)}
 					</span>
 				{/if}
@@ -141,10 +252,159 @@
 			</div>
 		{/if}
 
+		<!-- Subtasks Section -->
+		<div class="space-y-2 pt-1 border-t border-border/60">
+			<div class="flex items-center justify-between gap-2 flex-wrap">
+				<div class="flex items-center gap-1.5">
+					<span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+						Subtask
+					</span>
+					{#if subtaskCount > 0}
+						<span class="text-[10px] text-muted-foreground/80 font-mono">
+							({subtaskDoneCount}/{subtaskCount})
+						</span>
+					{/if}
+				</div>
+				{#if subtaskCount > 0}
+					<span class="text-[10px] text-muted-foreground font-medium">
+						{progressPct}% selesai
+					</span>
+				{/if}
+			</div>
+
+			{#if subtaskCount > 0}
+				<div class="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+					<div
+						class="h-full bg-emerald-500 rounded-full transition-all duration-300"
+						style="width: {progressPct}%"
+					></div>
+				</div>
+
+				<div class="space-y-1 max-h-44 overflow-y-auto rounded-lg border bg-muted/20 p-1.5">
+					{#each subtasks as st (st.id)}
+						<div class="group flex items-center justify-between gap-2 px-1.5 py-1 rounded hover:bg-muted/40 transition-colors min-w-0">
+							<div class="flex items-center gap-2 min-w-0 flex-1">
+								<button
+									type="button"
+									onclick={() => handleToggleSubtask(st)}
+									class={cn(
+										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
+										st.done
+											? 'border-emerald-500 bg-emerald-500 text-white'
+											: 'border-muted-foreground/40 hover:border-foreground bg-background'
+									)}
+								>
+									{#if st.done}
+										<Check class="size-3 stroke-[3]" />
+									{/if}
+								</button>
+
+								{#if editingSubtaskId === st.id}
+									<!-- svelte-ignore a11y_autofocus -->
+									<input
+										type="text"
+										bind:value={editingSubtaskTitle}
+										onkeydown={(e) => {
+											if (e.key === 'Enter') handleSaveEditSubtask(st);
+											if (e.key === 'Escape') {
+												editingSubtaskId = null;
+												editingSubtaskTitle = '';
+											}
+										}}
+										onblur={() => handleSaveEditSubtask(st)}
+										class="flex-1 bg-background border border-primary rounded px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
+										autofocus
+									/>
+								{:else}
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<span
+										class={cn(
+											'text-xs select-text break-words [overflow-wrap:anywhere] flex-1 cursor-text leading-snug',
+											st.done && 'line-through text-muted-foreground'
+										)}
+										ondblclick={() => handleStartEditSubtask(st)}
+									>
+										{st.title}
+									</span>
+								{/if}
+							</div>
+
+							<div class="flex items-center gap-0.5 shrink-0 opacity-80 group-hover:opacity-100">
+								{#if editingSubtaskId === st.id}
+									<Button
+										variant="ghost"
+										size="icon-xs"
+										class="size-5 rounded"
+										onclick={() => handleSaveEditSubtask(st)}
+									>
+										<Check class="size-3" />
+									</Button>
+								{:else}
+									<Button
+										variant="ghost"
+										size="icon-xs"
+										class="size-5 rounded text-muted-foreground hover:text-foreground"
+										onclick={() => handleStartEditSubtask(st)}
+									>
+										<Pencil class="size-3" />
+									</Button>
+									<Button
+										variant="ghost"
+										size="icon-xs"
+										class="size-5 rounded text-muted-foreground hover:text-destructive"
+										onclick={() => handleDeleteSubtask(st.id)}
+									>
+										<Trash class="size-3" />
+									</Button>
+								{/if}
+							</div>
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			{#if !task?.deleted}
+				<InputGroup class="h-8 rounded-lg border border-input/60 bg-muted/20 shadow-none px-1 transition-colors focus-within:border-primary/70 focus-within:bg-background">
+					<InputGroupInput
+						bind:value={newSubtaskTitle}
+						onkeydown={(e) => {
+							if (e.key === 'Enter') {
+								e.preventDefault();
+								handleAddSubtask();
+							}
+						}}
+						placeholder="Tambah subtask... (Enter)"
+						class="h-7 text-xs px-2 py-0 placeholder:text-muted-foreground/60"
+					/>
+					<InputGroupAddon align="inline-end" class="!pr-0.5 !py-0 gap-1">
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<InputGroupButton
+										{...props}
+										variant="secondary"
+										size="xs"
+										disabled={!newSubtaskTitle.trim()}
+										onclick={handleAddSubtask}
+										class="h-6 gap-1 px-2 text-xs rounded-md font-medium cursor-pointer"
+									>
+										<Plus class="size-3" />
+										<span>Tambah</span>
+									</InputGroupButton>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content>Tambah subtask (Enter)</Tooltip.Content>
+						</Tooltip.Root>
+					</InputGroupAddon>
+				</InputGroup>
+			{/if}
+		</div>
+
 		{#if !task?.deleted && onSetStatus}
-			<div class="flex items-center justify-between gap-1 pt-1 border-t border-border/60">
-				<span class="text-[11px] text-muted-foreground">Ubah status:</span>
-				<div class="flex gap-1">
+			<div class="flex items-center justify-between gap-2 pt-1 border-t border-border/60 flex-wrap">
+				<span class="text-[11px] text-muted-foreground shrink-0">Ubah status:</span>
+				<div class="flex gap-1 flex-wrap">
 					<button
 						type="button"
 						onclick={() => {
@@ -207,8 +467,8 @@
  				</span>
  				<div class="space-y-1.5 max-h-32 overflow-y-auto rounded-lg border bg-muted/20 p-2 text-[11px]">
  					{#each events as ev, idx (ev.id)}
- 						<div class="flex items-center justify-between text-muted-foreground gap-2">
- 							<div class="flex items-center gap-1.5 min-w-0">
+ 						<div class="flex items-center justify-between text-muted-foreground gap-2 min-w-0 flex-wrap">
+ 							<div class="flex items-center gap-1.5 min-w-0 flex-1">
  								<span
  									class={cn(
  										'size-1.5 rounded-full shrink-0',
@@ -219,7 +479,7 @@
  												: 'bg-blue-500'
  									)}
  								></span>
- 								<span class="font-medium text-foreground truncate">
+ 								<span class="font-medium text-foreground break-words [overflow-wrap:anywhere]">
  									{#if idx === 0}
  										Dibuat ({ev.status === 'done' ? 'Selesai' : ev.status === 'inprogress' ? 'In Progress' : 'Todo'})
  									{:else}
@@ -236,8 +496,8 @@
  			</div>
  		{/if}
  
- 		<Dialog.Footer class="flex flex-row items-center justify-between gap-2 pt-2 sm:justify-between">
-			<div class="flex items-center gap-1.5">
+ 		<Dialog.Footer class="flex items-center justify-between gap-2 pt-2 flex-wrap sm:justify-between">
+			<div class="flex items-center gap-1.5 flex-wrap">
 				{#if task?.deleted}
 					{#if onRestore}
 						<Tooltip.Root>
@@ -315,6 +575,26 @@
 								{/snippet}
 							</Tooltip.Trigger>
 							<Tooltip.Content>Buat salinan todo ini</Tooltip.Content>
+						</Tooltip.Root>
+					{/if}
+
+					{#if onCompare}
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<Button
+										{...props}
+										variant="outline"
+										size="xs"
+										onclick={handleCompare}
+										class="gap-1"
+									>
+										<ArrowLeftRight class="size-3" />
+										<span>Bandingkan</span>
+									</Button>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content>Bandingkan dengan todo lain</Tooltip.Content>
 						</Tooltip.Root>
 					{/if}
 

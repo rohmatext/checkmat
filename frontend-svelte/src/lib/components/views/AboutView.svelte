@@ -5,23 +5,45 @@
 		Copy,
 		Check,
 		ShieldCheck,
+		Shield,
+		ShieldAlert,
 		Sparkles,
-		Heart
+		Heart,
+		Clock,
+		Settings2,
+		Lock
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
+	import * as Select from '#lib/components/ui/select/index.js';
+	import { AUTOLOCK_OPTIONS, AUTOLOCK_KEY } from '#lib/types.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { toast } from 'svelte-sonner';
 
 	let {
-		onBack
+		onBack,
+		autoLockDelay = $bindable('never'),
+		pinSet = false,
+		onOpenSecuritySettings,
+		onLockApp
 	}: {
 		onBack: () => void;
+		autoLockDelay?: string;
+		pinSet?: boolean;
+		onOpenSecuritySettings?: () => void;
+		onLockApp?: () => void;
 	} = $props();
 
 	const GITHUB_URL = 'https://github.com/rohmatext';
 	let copied = $state(false);
+
+	function handleAutoLockChange(val: string) {
+		autoLockDelay = val;
+		localStorage.setItem(AUTOLOCK_KEY, val);
+		const opt = AUTOLOCK_OPTIONS.find((o) => o.value === val);
+		toast.success(`Kunci otomatis: ${opt?.label ?? val}`);
+	}
 
 	async function openGithub() {
 		try {
@@ -135,6 +157,85 @@
 					</Tooltip.Trigger>
 					<Tooltip.Content>{copied ? 'Tersalin!' : 'Salin tautan profil'}</Tooltip.Content>
 				</Tooltip.Root>
+			</div>
+		</div>
+
+		<!-- Security & Auto-Lock Card -->
+		<div class="rounded-xl border border-border/70 bg-card p-3.5 space-y-3">
+			<div class="flex items-center justify-between">
+				<span class="text-[11px] font-semibold text-muted-foreground tracking-wider uppercase flex items-center gap-1.5">
+					<Shield class="size-3.5 text-primary" />
+					Keamanan & Kunci Otomatis
+				</span>
+				{#if pinSet}
+					<Badge variant="outline" class="text-[10px] gap-1 px-1.5 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10">
+						<Check class="size-2.5" /> PIN Aktif
+					</Badge>
+				{:else}
+					<Badge variant="outline" class="text-[10px] gap-1 px-1.5 py-0 border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10">
+						Belum Ada PIN
+					</Badge>
+				{/if}
+			</div>
+
+			<div class="space-y-1.5">
+				<span class="text-xs font-medium text-foreground flex items-center gap-1.5">
+					<Clock class="size-3.5 text-muted-foreground" />
+					Kunci saat Minimize:
+				</span>
+				<Select.Root
+					type="single"
+					bind:value={autoLockDelay}
+					items={AUTOLOCK_OPTIONS.map((o) => ({ value: o.value, label: `${o.label} — ${o.desc}` }))}
+					onValueChange={(val) => {
+						if (val) handleAutoLockChange(val);
+					}}
+				>
+					<Select.Trigger class="w-full h-8 text-xs rounded-lg justify-between cursor-pointer border-border/80 bg-background shadow-xs">
+						<Select.Value placeholder="Pilih durasi kunci otomatis" />
+					</Select.Trigger>
+					<Select.Content class="rounded-xl border border-border/80 p-1 shadow-xl max-h-60">
+						<Select.Group>
+							{#each AUTOLOCK_OPTIONS as opt (opt.value)}
+								<Select.Item
+									value={opt.value}
+									label={`${opt.label} — ${opt.desc}`}
+									class="rounded-lg text-xs py-1.5 px-2.5 cursor-pointer"
+								>
+									<div class="flex items-center gap-2">
+										<span class="font-medium text-foreground">{opt.label}</span>
+										<span class="text-[11px] text-muted-foreground truncate">— {opt.desc}</span>
+									</div>
+								</Select.Item>
+							{/each}
+						</Select.Group>
+					</Select.Content>
+				</Select.Root>
+			</div>
+
+			<div class="flex items-center gap-2 pt-1">
+				{#if onOpenSecuritySettings}
+					<Button
+						variant="outline"
+						size="sm"
+						class="flex-1 h-8 text-xs gap-1.5 cursor-pointer shadow-xs"
+						onclick={onOpenSecuritySettings}
+					>
+						<Settings2 class="size-3.5" />
+						Kelola PIN & Pengaturan
+					</Button>
+				{/if}
+				{#if onLockApp && pinSet}
+					<Button
+						variant="secondary"
+						size="sm"
+						class="h-8 text-xs gap-1.5 cursor-pointer shadow-xs"
+						onclick={onLockApp}
+					>
+						<Lock class="size-3.5" />
+						Kunci Sekarang
+					</Button>
+				{/if}
 			</div>
 		</div>
 

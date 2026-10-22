@@ -104,7 +104,7 @@
 				<p class="text-xs text-destructive">{fileActionError}</p>
 			{/if}
 		</div>
-		<Dialog.Footer class="gap-1.5">
+		<Dialog.Footer class="gap-1.5 flex-wrap">
 			<Dialog.Close class={buttonVariants({ variant: 'outline', size: 'sm' })}>Batal</Dialog.Close>
 			<Button size="sm" onclick={exportCsv}>Export</Button>
 		</Dialog.Footer>

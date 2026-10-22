@@ -97,7 +97,7 @@
 						<FolderOpen class="size-4 shrink-0 text-primary" />
 					{/if}
 					<span class="flex min-w-0 flex-1 items-center justify-between gap-1.5">
-						<span class={cn('truncate', isCompleted && 'line-through text-muted-foreground')}>
+						<span class={cn('truncate min-w-0 flex-1', isCompleted && 'line-through text-muted-foreground')}>
 							{project.name}
 						</span>
 						{#if isCompleted}
@@ -124,7 +124,7 @@
 			{/if}
 		</div>
 
-		<Dialog.Footer>
+		<Dialog.Footer class="gap-1.5 flex-wrap">
 			<Dialog.Close class={buttonVariants({ variant: 'ghost', size: 'sm' })}>Tutup</Dialog.Close>
 		</Dialog.Footer>
 	</Dialog.Content>

@@ -12,6 +12,7 @@
 		SORT_DIR_KEY,
 		THEME_KEY,
 		EXPORT_DIR_KEY,
+		AUTOLOCK_KEY,
 		type Task,
 		type TaskStatus,
 		type Category,
@@ -30,6 +31,7 @@
 
 	// Dialogs
 	import LockOverlay from '#lib/components/dialogs/LockOverlay.svelte';
+	import SecuritySettingsDialog from '#lib/components/dialogs/SecuritySettingsDialog.svelte';
 	import ExportDialog from '#lib/components/dialogs/ExportDialog.svelte';
 	import ImportDialog from '#lib/components/dialogs/ImportDialog.svelte';
 	import ProjectDialog from '#lib/components/dialogs/ProjectDialog.svelte';
@@ -55,6 +57,8 @@
 	// Dialog & Action State
 	let locked = $state(true);
 	let pinSet = $state(false);
+	let autoLockDelay = $state<string>('never');
+	let securityDialogOpen = $state(false);
 	let projectPickerOpen = $state(false);
 	let exportDialogOpen = $state(false);
 	let importDialogOpen = $state(false);
@@ -88,6 +92,10 @@
 	function openAbout() {
 		prevPage = page;
 		page = 'about';
+	}
+
+	function openSecuritySettings() {
+		securityDialogOpen = true;
 	}
 
 	function askConfirm(
@@ -337,13 +345,15 @@
 		}, 'default');
 	}
 
-	async function handleBatchSetTaskStatus(ids: number[], status: TaskStatus, onSuccess?: () => void) {
+	function handleBatchSetTaskStatus(ids: number[], status: TaskStatus, onSuccess?: () => void) {
 		if (ids.length === 0) return;
-		await invoke('set_task_status_batch', { ids, status });
-		await refresh();
 		const label = status === 'inprogress' ? 'In Progress' : status === 'done' ? 'Selesai' : 'Todo';
-		toast.success(`${ids.length} todo diubah ke ${label}`);
-		onSuccess?.();
+		askConfirm(`Ubah status ${ids.length} todo terpilih menjadi "${label}"?`, async () => {
+			await invoke('set_task_status_batch', { ids, status });
+			await refresh();
+			toast.success(`${ids.length} todo diubah ke ${label}`);
+			onSuccess?.();
+		}, 'default', 'Ubah Status');
 	}
 
 	function handleBatchSoftDelete(ids: number[], onSuccess?: () => void) {
@@ -356,12 +366,14 @@
 		}, 'destructive');
 	}
 
-	async function handleBatchRestore(ids: number[], onSuccess?: () => void) {
+	function handleBatchRestore(ids: number[], onSuccess?: () => void) {
 		if (ids.length === 0) return;
-		await invoke('restore_batch', { ids });
-		await refresh();
-		toast.success(`${ids.length} todo berhasil dipulihkan`);
-		onSuccess?.();
+		askConfirm(`Pulihkan ${ids.length} todo terpilih?`, async () => {
+			await invoke('restore_batch', { ids });
+			await refresh();
+			toast.success(`${ids.length} todo berhasil dipulihkan`);
+			onSuccess?.();
+		}, 'default', 'Pulihkan');
 	}
 
 	function handleBatchHardDelete(ids: number[], onSuccess?: () => void) {
@@ -372,6 +384,33 @@
 			toast.success(`${ids.length} todo berhasil dihapus permanen`);
 			onSuccess?.();
 		}, 'destructive');
+	}
+
+	function handleBatchDuplicate(ids: number[], onSuccess?: () => void) {
+		if (ids.length === 0) return;
+		askConfirm(`Duplikat ${ids.length} todo terpilih?`, async () => {
+			try {
+				await invoke('duplicate_tasks_batch', { ids });
+				await refresh();
+				toast.success(`${ids.length} todo berhasil diduplikat`);
+				onSuccess?.();
+			} catch (e) {
+				toast.error(String(e));
+			}
+		}, 'default', 'Duplikat');
+	}
+
+	async function handleBatchSetCategory(ids: number[], categoryId: number, onSuccess?: () => void) {
+		if (ids.length === 0) return;
+		try {
+			await invoke('set_category_batch', { ids, categoryId, projectId: activeProject });
+			await refresh();
+			const cat = cats.find((c) => c.id === categoryId);
+			toast.success(`${ids.length} todo berhasil dipindahkan ke ${cat?.name ?? 'kategori baru'}`);
+			onSuccess?.();
+		} catch (e) {
+			toast.error(String(e));
+		}
 	}
 
 	async function handleMoveTaskCategory(t: Task, catId: number) {
@@ -406,40 +445,143 @@
 		}
 	});
 
-	onMount(async () => {
-		try {
-			const status = await invoke<{ has_pin: boolean }>('get_lock_status');
-			pinSet = status.has_pin;
-		} catch {
-			pinSet = false;
-		}
-		locked = true;
+	onMount(() => {
+		let unlistenFocus: (() => void) | null = null;
+		let hiddenTimestamp: number | null = null;
+		let autoLockTimeoutId: any = null;
 
-		await reloadProjects();
-		exportDirectory =
-			localStorage.getItem(EXPORT_DIR_KEY) ??
-			localStorage.getItem('taskmini.exportDirectory') ??
-			(await invoke<string>('default_export_dir'));
-
-		const savedProject = localStorage.getItem(PROJECT_KEY) ?? localStorage.getItem('taskmini.project');
-		const initialProject =
-			projects.find((p) => String(p.id) === savedProject)?.id ?? projects[0]?.id ?? null;
-		if (initialProject !== null) activeProject = initialProject;
-
-		const savedSortField = localStorage.getItem(SORT_FIELD_KEY) ?? localStorage.getItem('taskmini.sortField');
-		if (savedSortField && ['cat_pos', 'pos', 'category', 'id', 'text'].includes(savedSortField)) {
-			sortField = savedSortField as SortField;
+		function clearAutoLockTimer() {
+			if (autoLockTimeoutId) {
+				clearTimeout(autoLockTimeoutId);
+				autoLockTimeoutId = null;
+			}
 		}
-		const savedSortDir = localStorage.getItem(SORT_DIR_KEY) ?? localStorage.getItem('taskmini.sortDir');
-		if (savedSortDir === 'asc' || savedSortDir === 'desc') {
-			sortDir = savedSortDir as SortDir;
+
+		function checkAndLock() {
+			if (autoLockDelay === 'never' || !pinSet || locked) return;
+			locked = true;
+			hiddenTimestamp = null;
+			clearAutoLockTimer();
 		}
+
+		function onWindowHidden() {
+			if (autoLockDelay === 'never' || !pinSet || locked) return;
+
+			if (autoLockDelay === '0') {
+				checkAndLock();
+				return;
+			}
+
+			const delaySec = parseInt(autoLockDelay, 10);
+			if (isNaN(delaySec) || delaySec <= 0) return;
+
+			hiddenTimestamp = Date.now();
+			clearAutoLockTimer();
+			autoLockTimeoutId = setTimeout(() => {
+				checkAndLock();
+			}, delaySec * 1000);
+		}
+
+		function onWindowVisible() {
+			clearAutoLockTimer();
+			if (hiddenTimestamp !== null && autoLockDelay !== 'never' && pinSet && !locked) {
+				const delaySec = parseInt(autoLockDelay, 10);
+				if (!isNaN(delaySec) && delaySec >= 0) {
+					const elapsedSec = (Date.now() - hiddenTimestamp) / 1000;
+					if (elapsedSec >= delaySec) {
+						checkAndLock();
+					}
+				}
+			}
+			hiddenTimestamp = null;
+		}
+
+		const handleVisibility = () => {
+			if (document.hidden || document.visibilityState === 'hidden') {
+				onWindowHidden();
+			} else {
+				onWindowVisible();
+			}
+		};
+		document.addEventListener('visibilitychange', handleVisibility);
+
+		// Window blur/focus listeners
+		const handleBlur = () => {
+			if (autoLockDelay !== '0') {
+				onWindowHidden();
+			}
+		};
+		const handleFocus = () => {
+			onWindowVisible();
+		};
+		window.addEventListener('blur', handleBlur);
+		window.addEventListener('focus', handleFocus);
+
+		// Also listen to Tauri window focus change if available
+		import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+			const appWindow = getCurrentWindow();
+			appWindow.onFocusChanged(({ payload: focused }) => {
+				if (!focused) {
+					appWindow.isMinimized().then((minimized) => {
+						if (minimized) {
+							onWindowHidden();
+						}
+					}).catch(() => {});
+				} else {
+					onWindowVisible();
+				}
+			}).then((unsub) => {
+				unlistenFocus = unsub;
+			}).catch(() => {});
+		}).catch(() => {});
+
+		(async () => {
+			try {
+				const status = await invoke<{ has_pin: boolean }>('get_lock_status');
+				pinSet = status.has_pin;
+			} catch {
+				pinSet = false;
+			}
+			locked = true;
+
+			autoLockDelay = localStorage.getItem(AUTOLOCK_KEY) ?? 'never';
+
+			await reloadProjects();
+			exportDirectory =
+				localStorage.getItem(EXPORT_DIR_KEY) ??
+				localStorage.getItem('taskmini.exportDirectory') ??
+				(await invoke<string>('default_export_dir'));
+
+			const savedProject = localStorage.getItem(PROJECT_KEY) ?? localStorage.getItem('taskmini.project');
+			const initialProject =
+				projects.find((p) => String(p.id) === savedProject)?.id ?? projects[0]?.id ?? null;
+			if (initialProject !== null) activeProject = initialProject;
+
+			const savedSortField = localStorage.getItem(SORT_FIELD_KEY) ?? localStorage.getItem('taskmini.sortField');
+			if (savedSortField && ['cat_pos', 'pos', 'category', 'id', 'text'].includes(savedSortField)) {
+				sortField = savedSortField as SortField;
+			}
+			const savedSortDir = localStorage.getItem(SORT_DIR_KEY) ?? localStorage.getItem('taskmini.sortDir');
+			if (savedSortDir === 'asc' || savedSortDir === 'desc') {
+				sortDir = savedSortDir as SortDir;
+			}
+		})();
+
+		return () => {
+			clearAutoLockTimer();
+			document.removeEventListener('visibilitychange', handleVisibility);
+			window.removeEventListener('blur', handleBlur);
+			window.removeEventListener('focus', handleFocus);
+			unlistenFocus?.();
+		};
 	});
 </script>
 
-<LockOverlay bind:locked bind:pinSet />
-
-{#if !locked}
+<div
+	class="h-full w-full"
+	inert={locked ? true : undefined}
+	aria-hidden={locked ? 'true' : undefined}
+>
 	{#if page === 'home'}
 		<ProjectsView
 			{projects}
@@ -452,6 +594,7 @@
 			onLockApp={lockApp}
 			onToggleTheme={toggleTheme}
 			onOpenAbout={openAbout}
+			onOpenSecuritySettings={openSecuritySettings}
 		/>
 	{:else if page === 'categories'}
 		<CategoriesView
@@ -467,7 +610,13 @@
 			onSetColorQuick={setCatColorQuick}
 		/>
 	{:else if page === 'about'}
-		<AboutView onBack={() => (page = prevPage === 'about' ? 'tasks' : prevPage)} />
+		<AboutView
+			onBack={() => (page = prevPage === 'about' ? 'tasks' : prevPage)}
+			bind:autoLockDelay
+			{pinSet}
+			onOpenSecuritySettings={openSecuritySettings}
+			onLockApp={lockApp}
+		/>
 	{:else}
 		<TasksView
 			{tasks}
@@ -488,6 +637,7 @@
 			onLockApp={lockApp}
 			onToggleTheme={toggleTheme}
 			onOpenAbout={openAbout}
+			onOpenSecuritySettings={openSecuritySettings}
 			onOpenImportDialog={() => (importDialogOpen = true)}
 			onOpenExportDialog={() => (exportDialogOpen = true)}
 			onAddTask={handleAddTask}
@@ -503,6 +653,8 @@
 			onRestoreBatch={handleBatchRestore}
 			onHardDelete={handleHardDelete}
 			onHardDeleteBatch={handleBatchHardDelete}
+			onDuplicateBatch={handleBatchDuplicate}
+			onSetCategoryBatch={handleBatchSetCategory}
 			onMoveTaskCategory={(t) => (moveTask = t)}
 			onReorderTasks={handleReorderTasks}
 			onOpenEditProject={() => {
@@ -510,9 +662,19 @@
 				projectDialogMode = 'edit';
 			}}
 			onSetProjectStatus={setProjectStatus}
+			onRefreshTasks={refresh}
 		/>
 	{/if}
-{/if}
+</div>
+
+<LockOverlay bind:locked bind:pinSet />
+
+<SecuritySettingsDialog
+	bind:open={securityDialogOpen}
+	bind:autoLockDelay
+	bind:pinSet
+	onLockNow={lockApp}
+/>
 
 <!-- Modals & Dialogs -->
 <ExportDialog bind:open={exportDialogOpen} bind:exportDirectory />

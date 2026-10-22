@@ -38,11 +38,11 @@
 
 <AlertDialog.Root open={confirmState !== null} onOpenChange={(open) => { if (!open) confirmState = null; }}>
 	<AlertDialog.Content class="max-w-xs gap-4 p-4">
-		<AlertDialog.Header class="gap-1">
+		<AlertDialog.Header class="gap-1 text-left">
 			<AlertDialog.Title class="text-sm font-semibold">Konfirmasi</AlertDialog.Title>
-			<AlertDialog.Description class="text-xs">{confirmState?.msg ?? ''}</AlertDialog.Description>
+			<AlertDialog.Description class="text-xs leading-relaxed break-words [overflow-wrap:anywhere] select-text">{confirmState?.msg ?? ''}</AlertDialog.Description>
 		</AlertDialog.Header>
-		<AlertDialog.Footer class="gap-1.5">
+		<AlertDialog.Footer class="gap-1.5 flex-wrap">
 			<AlertDialog.Cancel variant="outline" size="sm" disabled={busy}>Batal</AlertDialog.Cancel>
 			<AlertDialog.Action
 				size="sm"
