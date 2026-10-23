@@ -19,6 +19,7 @@
 		task = $bindable<Task | null>(null),
 		cats = [],
 		onDuplicate,
+		onDuplicateToCategories,
 		onToggleDone,
 		onSetStatus,
 		onDelete,
@@ -31,6 +32,7 @@
 		task: Task | null;
 		cats: Category[];
 		onDuplicate?: (t: Task) => void;
+		onDuplicateToCategories?: (t: Task) => void;
 		onToggleDone?: (t: Task) => void;
 		onSetStatus?: (id: number, status: TaskStatus) => void;
 		onDelete?: (t: Task) => void;
@@ -156,6 +158,12 @@
 		if (!task || !onDuplicate || task.deleted) return;
 		const cur = task;
 		onDuplicate(cur);
+	}
+
+	function handleDuplicateToCategories() {
+		if (!task || !onDuplicateToCategories || task.deleted) return;
+		const cur = task;
+		onDuplicateToCategories(cur);
 	}
 
 	function handleCompare() {
@@ -575,6 +583,26 @@
 								{/snippet}
 							</Tooltip.Trigger>
 							<Tooltip.Content>Buat salinan todo ini</Tooltip.Content>
+						</Tooltip.Root>
+					{/if}
+
+					{#if onDuplicateToCategories}
+						<Tooltip.Root>
+							<Tooltip.Trigger>
+								{#snippet child({ props })}
+									<Button
+										{...props}
+										variant="outline"
+										size="xs"
+										onclick={handleDuplicateToCategories}
+										class="gap-1"
+									>
+										<Copy class="size-3" />
+										<span>Duplikat ke Kategori</span>
+									</Button>
+								{/snippet}
+							</Tooltip.Trigger>
+							<Tooltip.Content>Duplikat todo ini ke beberapa kategori</Tooltip.Content>
 						</Tooltip.Root>
 					{/if}
 

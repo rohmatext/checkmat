@@ -56,6 +56,7 @@
 	import CopyableText from '#lib/components/CopyableText.svelte';
 	import BatchMoveCategoryDialog from '#lib/components/dialogs/BatchMoveCategoryDialog.svelte';
 	import TaskCompareDialog from '#lib/components/dialogs/TaskCompareDialog.svelte';
+	import BatchDuplicateToCategoriesDialog from '#lib/components/dialogs/BatchDuplicateToCategoriesDialog.svelte';
 	import CustomContextMenu from '#lib/components/CustomContextMenu.svelte';
 	import { formatFullDate, formatTaskDate, getBadgeCls, getSolidCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
 	import { cn } from '#lib/utils';
@@ -83,6 +84,7 @@
 		onAddTask,
 		onUpdateTask,
 		onDuplicateTask,
+		onDuplicateToCategories,
 		onToggleDone,
 		onSetTaskStatus,
 		onSetTaskStatusBatch,
@@ -125,6 +127,7 @@
 		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onDuplicateTask?: (t: Task) => void;
+		onDuplicateTaskToCategories?: (t: Task) => void;
 		onToggleDone: (t: Task) => void;
 		onSetTaskStatus?: (id: number, status: TaskStatus) => Promise<void>;
 		onSetTaskStatusBatch?: (ids: number[], status: TaskStatus, onSuccess?: () => void) => Promise<void>;
@@ -287,6 +290,8 @@
 	let selectMode = $state(false);
 	let selectedIds = $state<number[]>([]);
 	let batchCategoryDialogOpen = $state(false);
+	let batchDuplicateDialogOpen = $state(false);
+	let duplicateToCategoriesTask = $state<Task | null>(null);
 
 	// Compare tasks state
 	let compareOpen = $state(false);
@@ -1696,6 +1701,14 @@
 												<Copy class="size-3.5" /> Duplikat
 											</DropdownMenu.Item>
 										{/if}
+										{#if onDuplicateTask}
+											<DropdownMenu.Item
+												onclick={() => onDuplicateToCategories?.(t)}
+												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+											>
+												<Copy class="size-3.5" /> Duplikat ke Kategori
+											</DropdownMenu.Item>
+										{/if}
 										<DropdownMenu.Item
 											onclick={() => onMoveTaskCategory(t)}
 											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
@@ -1896,6 +1909,14 @@
 		onRefreshTasks={onRefreshTasks}
 	/>
 
+	<BatchDuplicateToCategoriesDialog
+		bind:open={batchDuplicateDialogOpen}
+		count={1}
+		{cats}
+		taskName={duplicateToCategoriesTask?.text ?? ''}
+		taskId={duplicateToCategoriesTask?.id ?? 0}
+	/>
+
 	<CustomContextMenu
 		bind:menuState={contextMenuState}
 		{cats}
@@ -1908,6 +1929,10 @@
 		onStartEdit={(t) => startEdit(t)}
 		onSetStatus={(id, st) => onSetTaskStatus?.(id, st)}
 		onDuplicate={onDuplicateTask}
+		onDuplicateToCategories={(t) => {
+			duplicateToCategoriesTask = t;
+			batchDuplicateDialogOpen = true;
+		}}
 		onMoveCategory={onMoveTaskCategory}
 		onCompare={(t) => openCompare(t)}
 		onDelete={onSoftDelete}

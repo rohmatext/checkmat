@@ -62,6 +62,7 @@
 		onStartEdit?: (t: Task) => void;
 		onSetStatus?: (id: number, status: TaskStatus) => void;
 		onDuplicate?: (t: Task) => void;
+		onDuplicateToCategories?: (t: Task) => void;
 		onMoveCategory?: (t: Task) => void;
 		onCompare?: (t: Task) => void;
 		onDelete?: (t: Task) => void;
@@ -260,6 +261,17 @@
 				>
 					<Copy class="size-3.5 text-muted-foreground" />
 					<span>Duplikat Todo</span>
+				</button>
+				<button
+					type="button"
+					class="flex w-full items-center gap-2 px-2 py-1 text-xs rounded-lg hover:bg-muted text-foreground transition-colors cursor-pointer text-left"
+					onclick={() => {
+						onDuplicateToCategories?.(t);
+						close();
+					}}
+				>
+					<Copy class="size-3.5 text-primary" />
+					<span>Duplikat ke Kategori</span>
 				</button>
 				<button
 					type="button"
