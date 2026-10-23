@@ -48,7 +48,7 @@
 	let page = $state<Page>('home');
 	let prevPage = $state<Page>('home');
 	let tab = $state<Tab>('active');
-	let activeCat = $state<number | null>(null);
+	let activeCats = $state<number[]>([]);
 	let newCat = $state<number | null>(null);
 	let sortField = $state<SortField>('cat_pos');
 	let sortDir = $state<SortDir>('asc');
@@ -134,7 +134,7 @@
 		localStorage.setItem(PROJECT_KEY, String(id));
 		page = 'tasks';
 		projectPickerOpen = false;
-		activeCat = null;
+		activeCats = [];
 		localStorage.setItem(CAT_KEY, 'all');
 		await reloadCats();
 		newCat = cats[0]?.id ?? null;
@@ -182,20 +182,22 @@
 	}
 
 	function openCategoryDialog(mode: 'add' | 'rename', cat?: Category) {
-		editingCategory = cat ?? (mode === 'rename' ? (cats.find(c => c.id === activeCat) ?? cats[0] ?? null) : null);
+		const current = activeCats.length === 1 ? activeCats[0] : null;
+		editingCategory = cat ?? (mode === 'rename' ? (cats.find(c => c.id === current) ?? cats[0] ?? null) : null);
 		categoryDialogMode = mode;
 	}
 
 	function deleteCategory(target?: Category) {
-		const cur = target ?? cats.find(c => c.id === activeCat);
+		const current = activeCats.length === 1 ? activeCats[0] : null;
+		const cur = target ?? cats.find(c => c.id === current);
 		if (!cur) return;
 		askConfirm(`Hapus kategori "${cur.name}"?`, async () => {
 			try {
 				await invoke('delete_category', { id: cur.id, projectId: activeProject });
 				await reloadCats();
-				if (!cats.some((c) => c.id === activeCat)) {
-					activeCat = cats.length ? cats[0].id : null;
-					localStorage.setItem(CAT_KEY, activeCat !== null ? String(activeCat) : 'all');
+				if (!cats.some((c) => c.id === cur.id)) {
+					activeCats = activeCats.filter((id) => id !== cur.id);
+					localStorage.setItem(CAT_KEY, activeCats.length ? JSON.stringify(activeCats) : 'all');
 				}
 				if (newCat === null || !cats.some((c) => c.id === newCat)) newCat = cats[0]?.id ?? null;
 				await refresh();
@@ -261,9 +263,9 @@
 		await invoke('add_task', { text, categoryId: catId, projectId: activeProject, description });
 		await refresh();
 		toast.success('Todo berhasil ditambahkan');
-		if (activeCat !== null && activeCat !== catId) {
-			activeCat = catId;
-			localStorage.setItem(CAT_KEY, String(catId));
+		if (activeCats.length > 0 && !activeCats.includes(catId)) {
+			activeCats = [...activeCats, catId];
+			localStorage.setItem(CAT_KEY, JSON.stringify(activeCats));
 		}
 	}
 
@@ -438,11 +440,7 @@
 		if (sortDir) localStorage.setItem(SORT_DIR_KEY, sortDir);
 	});
 	$effect(() => {
-		if (activeCat !== null) {
-			localStorage.setItem(CAT_KEY, String(activeCat));
-		} else {
-			localStorage.setItem(CAT_KEY, 'all');
-		}
+		localStorage.setItem(CAT_KEY, activeCats.length ? JSON.stringify(activeCats) : 'all');
 	});
 
 	onMount(() => {
@@ -622,7 +620,7 @@
 			{tasks}
 			{cats}
 			{activeProjectItem}
-			bind:activeCat
+			bind:activeCats
 			bind:newCat
 			bind:tab
 			bind:sortField
@@ -711,7 +709,7 @@
 	onSaved={async (id) => {
 		await reloadCats();
 		if (categoryDialogMode === 'add' && id && page === 'tasks') {
-			activeCat = id;
+			activeCats = [...activeCats, id];
 			newCat = id;
 		}
 	}}

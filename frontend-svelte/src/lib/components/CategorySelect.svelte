@@ -14,20 +14,28 @@
 		allLabel = 'Semua kategori',
 		placeholder = 'Pilih kategori',
 		tasks = [],
+		multiple = false,
+		values = [],
 		class: className = '',
 		triggerClass = '',
 		onSelect,
+		onToggle,
+		onClear,
 		onOpenAddCategory
 	}: {
 		cats: Category[];
-		value: number | null;
+		value?: number | null;
 		allowAll?: boolean;
 		allLabel?: string;
 		placeholder?: string;
 		tasks?: Task[];
+		multiple?: boolean;
+		values?: number[];
 		class?: string;
 		triggerClass?: string;
-		onSelect: (val: number | null) => void;
+		onSelect?: (val: number | null) => void;
+		onToggle?: (id: number) => void;
+		onClear?: () => void;
 		onOpenAddCategory?: () => void;
 	} = $props();
 
@@ -48,6 +56,7 @@
 	});
 
 	const selectedCat = $derived(cats.find((c) => c.id === value));
+	const selectedCats = $derived(cats.filter((c) => values.includes(c.id)));
 
 	const filteredCats = $derived(
 		query.trim() === ''
@@ -64,7 +73,13 @@
 	}
 
 	function handlePick(id: number | null) {
-		onSelect(id);
+		if (multiple) {
+			if (id === null) onClear?.();
+			else onToggle?.(id);
+			query = '';
+			return;
+		}
+		onSelect?.(id);
 		open = false;
 		query = '';
 	}
@@ -77,14 +92,28 @@
 				type="button"
 				bind:this={triggerEl}
 				{...props}
-				title={selectedCat?.name ?? (value === null && allowAll ? allLabel : placeholder)}
+				title={multiple
+					? values.length === 0
+						? allLabel
+						: `${values.length} kategori dipilih`
+					: (selectedCat?.name ?? (value === null && allowAll ? allLabel : placeholder))}
 				class={cn(
 					'flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-semibold shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer',
 					triggerClass
 				)}
 			>
 				<span class="flex min-w-0 items-center gap-2 truncate">
-					{#if value === null && allowAll}
+					{#if multiple}
+						{#if selectedCats.length === 0}
+							<span class="size-2 shrink-0 rounded-full bg-primary/60"></span>
+							<span class="truncate">{allLabel}</span>
+						{:else}
+							<span class="size-2 shrink-0 rounded-full bg-primary"></span>
+							<span class="truncate">{selectedCats.length === 1
+								? selectedCats[0].name
+								: `${selectedCats.length} kategori dipilih`}</span>
+						{/if}
+					{:else if value === null && allowAll}
 						<span class="size-2 shrink-0 rounded-full bg-primary/60"></span>
 						<span class="truncate">{allLabel}</span>
 					{:else if selectedCat}
@@ -150,7 +179,7 @@
 						{#if countAll !== null}
 							<span class="text-[10px]">{countAll}</span>
 						{/if}
-						{#if value === null}
+						{#if multiple ? values.length === 0 : value === null}
 							<Check class="size-3.5 text-foreground stroke-2" />
 						{/if}
 					</span>
@@ -159,7 +188,7 @@
 
 			{#each filteredCats as c (c.id)}
 				{@const countCat = countFor(c.id)}
-				{@const isSelected = value === c.id}
+				{@const isSelected = multiple ? values.includes(c.id) : value === c.id}
 				<button
 					type="button"
 					class="flex w-full items-start justify-between gap-2 rounded-md px-2 py-1.5 text-left text-xs text-foreground transition-colors hover:bg-accent hover:text-accent-foreground cursor-pointer select-none"

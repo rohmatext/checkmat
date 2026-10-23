@@ -57,14 +57,14 @@
 	import BatchMoveCategoryDialog from '#lib/components/dialogs/BatchMoveCategoryDialog.svelte';
 	import TaskCompareDialog from '#lib/components/dialogs/TaskCompareDialog.svelte';
 	import CustomContextMenu from '#lib/components/CustomContextMenu.svelte';
-	import { formatFullDate, formatTaskDate, getBadgeCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
+	import { formatFullDate, formatTaskDate, getBadgeCls, getSolidCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
 	let {
 		tasks = [],
 		cats = [],
 		activeProjectItem = undefined,
-		activeCat = $bindable(null),
+		activeCats = $bindable([]),
 		newCat = $bindable(null),
 		tab = $bindable('active'),
 		sortField = $bindable('cat_pos'),
@@ -106,7 +106,7 @@
 		tasks: Task[];
 		cats: Category[];
 		activeProjectItem?: Project;
-		activeCat: number | null;
+		activeCats: number[];
 		newCat: number | null;
 		tab: Tab;
 		sortField: SortField;
@@ -296,12 +296,15 @@
 	$effect(() => {
 		// Reset pilihan saat tab atau kategori aktif berubah
 		tab;
-		activeCat;
+		activeCats;
 		selectedIds = [];
 	});
 
 	const byId = (id: number | null) => cats.find((c) => c.id === id);
-	const curCat = $derived(byId(activeCat));
+	const singleCat = $derived(activeCats.length === 1);
+	const curCat = $derived(singleCat ? byId(activeCats[0]) : undefined);
+	const isAllCats = $derived(activeCats.length === 0);
+	const inActiveCats = (t: Task) => isAllCats || activeCats.includes(t.category_id);
 
 	const inTab = (t: Task, k: Tab) =>
 		k === 'active' || k === 'todo'
@@ -313,7 +316,7 @@
 					: t.deleted;
 
 	const count = (k: Tab) =>
-		tasks.filter((t) => (activeCat === null || t.category_id === activeCat) && inTab(t, k)).length;
+		tasks.filter((t) => inActiveCats(t) && inTab(t, k)).length;
 
 	function cycleTaskStatus(t: Task) {
 		const current = t.done || t.status === 'done' ? 'done' : t.status === 'inprogress' ? 'inprogress' : 'todo';
@@ -348,10 +351,8 @@
 	}
 
 	let rows = $derived.by(() => {
-		const filtered = tasks.filter(
-			(t) => (activeCat === null || t.category_id === activeCat) && inTab(t, tab)
-		);
-		if (activeCat !== null) {
+		const filtered = tasks.filter((t) => inActiveCats(t) && inTab(t, tab));
+		if (!isAllCats) {
 			return filtered;
 		}
 
@@ -401,8 +402,18 @@
 	}
 
 	function handlePickCat(v: string) {
-		activeCat = v === 'all' ? null : Number(v);
-		if (activeCat !== null) newCat = activeCat;
+		activeCats = v === 'all' ? [] : [Number(v)];
+		if (activeCats.length === 1) newCat = activeCats[0];
+		dragRows = null;
+		dragId = null;
+		overIdx = null;
+	}
+
+	function toggleCat(id: number) {
+		activeCats = activeCats.includes(id)
+			? activeCats.filter((x) => x !== id)
+			: [...activeCats, id];
+		newCat = id;
 		dragRows = null;
 		dragId = null;
 		overIdx = null;
@@ -612,7 +623,7 @@
 
 	/* ----- drag reorder ----- */
 	function shift(idx: number) {
-		if (activeCat === null) return;
+		if (!singleCat) return;
 		const cur = dragRows ?? rows;
 		const from = cur.findIndex((r) => r.id === dragId);
 		if (from === -1) return;
@@ -623,7 +634,7 @@
 	}
 
 	function onDragStart(e: DragEvent, t: Task) {
-		if (activeCat === null) return;
+		if (!singleCat) return;
 		dragId = t.id;
 		dragRows = [...rows];
 		overIdx = rows.findIndex((r) => r.id === t.id);
@@ -632,7 +643,7 @@
 	}
 
 	function onRowDragOver(e: DragEvent, i: number) {
-		if (activeCat === null) return;
+		if (!singleCat) return;
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 		const target = e.currentTarget as HTMLElement;
@@ -646,7 +657,7 @@
 	}
 
 	function onMainDragOver(e: DragEvent) {
-		if (activeCat === null) return;
+		if (!singleCat) return;
 		e.preventDefault();
 		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
 		const items = document.querySelectorAll('[role="listitem"]');
@@ -659,7 +670,7 @@
 	}
 
 	async function onDrop(e: DragEvent) {
-		if (activeCat === null) return;
+		if (!singleCat) return;
 		e.preventDefault();
 		const final = dragRows;
 		dragId = null;
@@ -784,18 +795,21 @@
 	</div>
 
 	<!-- filter kategori -->
-	<div class="flex items-center gap-1.5 px-2 pt-2">
-		<div class="min-w-0 flex-1">
-			<CategorySelect
-				{cats}
-				value={activeCat}
-				allowAll={true}
-				allLabel="Semua kategori"
-				{tasks}
-				onSelect={(id) => handlePickCat(id === null ? 'all' : String(id))}
-				{onOpenAddCategory}
-			/>
-		</div>
+	<div class="flex flex-col gap-1 px-2 pt-2">
+		<div class="flex items-center gap-1.5">
+			<div class="min-w-0 flex-1">
+				<CategorySelect
+					{cats}
+					multiple={true}
+					values={activeCats}
+					allowAll={true}
+					allLabel="Semua kategori"
+					{tasks}
+					onToggle={toggleCat}
+					onClear={() => handlePickCat('all')}
+					{onOpenAddCategory}
+				/>
+			</div>
 
 		<div class="flex items-center gap-1 shrink-0">
 			<Tooltip.Root>
@@ -808,7 +822,24 @@
 				</Tooltip.Trigger>
 				<Tooltip.Content>Kelola kategori</Tooltip.Content>
 			</Tooltip.Root>
-			{#if activeCat !== null}
+			{#if activeCats.length > 0}
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="outline"
+								size="icon-sm"
+								onclick={() => handlePickCat('all')}
+							>
+								<X />
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>Bersihkan filter</Tooltip.Content>
+				</Tooltip.Root>
+			{/if}
+			{#if singleCat}
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
 						{#snippet child({ props })}
@@ -832,6 +863,33 @@
 				</DropdownMenu.Root>
 			{/if}
 		</div>
+		</div>
+
+		{#if activeCats.length > 0}
+			<div class="flex flex-wrap items-center gap-1">
+				{#each cats.filter((c) => activeCats.includes(c.id)) as c (c.id)}
+					<button
+						type="button"
+						onclick={() => toggleCat(c.id)}
+						title="Hapus filter {c.name}"
+						class="group flex max-w-40 items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent cursor-pointer"
+					>
+						<span class={cn('size-1.5 shrink-0 rounded-full', getSolidCls(c.color))}></span>
+						<span class="truncate">{c.name}</span>
+						<X class="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
+					</button>
+				{/each}
+				{#if activeCats.length > 1}
+					<button
+						type="button"
+						onclick={() => handlePickCat('all')}
+						class="rounded-full px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground cursor-pointer"
+					>
+						Hapus semua
+					</button>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	<!-- tabs -->
@@ -1048,7 +1106,7 @@
 			</div>
 		{:else if rows.length > 0}
 			<div class="mb-2 flex items-center justify-between gap-1">
-				{#if activeCat === null}
+				{#if isAllCats}
 					<div class="flex items-center gap-1 rounded-lg bg-muted/40 p-0.5 text-xs">
 						<span class="flex items-center gap-1 pl-1.5 pr-1 text-[11px] font-medium text-muted-foreground select-none">
 							<ArrowUpDown class="size-3 text-muted-foreground" />
@@ -1126,7 +1184,7 @@
 
 		{#if rows.length === 0}
 			<p class="p-3 text-center text-muted-foreground">
-				{activeCat === null
+				{activeCats.length === 0
 					? 'Belum ada todo'
 					: curCat
 						? `Belum ada todo di "${curCat.name}"`
@@ -1137,14 +1195,14 @@
 		{#each view as t, i (t.id)}
 			{@const isSelected = selectedIds.includes(t.id)}
 			{@const isExpanded = expandedIds.includes(t.id)}
-			{#if activeCat !== null && overIdx === i}
+			{#if singleCat && overIdx === i}
 				<div class="mx-1 mb-1 h-0.5 rounded-full bg-primary"></div>
 			{/if}
 			<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<div
 				role="listitem"
-				draggable={!selectMode && editId !== t.id && tab !== 'deleted' && activeCat !== null}
+				draggable={!selectMode && editId !== t.id && tab !== 'deleted' && singleCat}
 				ondragstart={(e) => onDragStart(e, t)}
 				ondragover={(e) => onRowDragOver(e, i)}
 				ondrop={onDrop}
@@ -1155,7 +1213,7 @@
 				oncontextmenu={(e) => handleTaskContextMenu(e, t)}
 				class={cn(
 					'mb-1.5 flex items-start gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
-					activeCat !== null && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
+					singleCat && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
 					selectMode ? 'cursor-pointer hover:border-primary/60' : '',
 					isSelected && 'border-primary ring-1 ring-primary/40 bg-primary/5 dark:bg-primary/10',
 					dragId === t.id && 'opacity-35'
@@ -1187,7 +1245,7 @@
 						</Tooltip.Trigger>
 						<Tooltip.Content>{isSelected ? 'Batal tandai' : 'Tandai todo ini'}</Tooltip.Content>
 					</Tooltip.Root>
-				{:else if activeCat !== null && tab !== 'deleted' && editId !== t.id}
+				{:else if singleCat && tab !== 'deleted' && editId !== t.id}
 					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50 mt-1" />
 				{/if}
 
@@ -1664,7 +1722,7 @@
 					{/if}
 				{/if}
 			</div>
-			{#if activeCat !== null && overIdx === view.length && i === view.length - 1}
+			{#if singleCat && overIdx === view.length && i === view.length - 1}
 				<div class="mx-1 mt-1.5 h-0.5 rounded-full bg-primary"></div>
 			{/if}
 		{/each}

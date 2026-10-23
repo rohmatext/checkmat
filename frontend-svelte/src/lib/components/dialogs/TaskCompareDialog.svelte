@@ -17,6 +17,7 @@
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import * as Select from '#lib/components/ui/select/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import { invoke } from '@tauri-apps/api/core';
 	import { toast } from 'svelte-sonner';
@@ -28,6 +29,7 @@
 		type TaskEvent,
 		type Subtask
 	} from '#lib/types.js';
+	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import CopyableText from '#lib/components/CopyableText.svelte';
 	import { cn } from '#lib/utils';
 
@@ -52,6 +54,8 @@
 	let layout = $state<'split' | 'stacked'>('split');
 	let pickingTarget = $state<'A' | 'B' | null>(null);
 	let pickerQuery = $state('');
+	let pickerCats = $state<number[]>([]);
+	let pickerStatus = $state<'all' | 'todo' | 'inprogress' | 'done' | 'deleted'>('all');
 
 	let eventsA = $state<TaskEvent[]>([]);
 	let eventsB = $state<TaskEvent[]>([]);
@@ -86,6 +90,8 @@
 	$effect(() => {
 		if (open) {
 			pickerQuery = '';
+			pickerCats = [];
+			pickerStatus = 'all';
 			if (taskA && !taskB) {
 				pickingTarget = 'B';
 			} else if (!taskA && !taskB) {
@@ -196,11 +202,28 @@
 	const catA = $derived(cats.find((c) => c.id === taskA?.category_id));
 	const catB = $derived(cats.find((c) => c.id === taskB?.category_id));
 
+	const matchesStatus = (t: Task, s: typeof pickerStatus) => {
+		switch (s) {
+			case 'deleted':
+				return t.deleted;
+			case 'done':
+				return !t.deleted && (t.done || t.status === 'done');
+			case 'inprogress':
+				return !t.deleted && !t.done && t.status === 'inprogress';
+			case 'todo':
+				return !t.deleted && !t.done && (!t.status || t.status === 'todo');
+			default:
+				return true;
+		}
+	};
+
 	const filteredPickerTasks = $derived.by(() => {
 		const otherId = pickingTarget === 'A' ? taskB?.id : taskA?.id;
 		const q = pickerQuery.trim().toLowerCase();
 		return tasks.filter((t) => {
 			if (otherId && t.id === otherId) return false;
+			if (!matchesStatus(t, pickerStatus)) return false;
+			if (pickerCats.length > 0 && !pickerCats.includes(t.category_id)) return false;
 			if (!q) return true;
 			const cat = cats.find((c) => c.id === t.category_id);
 			return (
@@ -211,19 +234,25 @@
 		});
 	});
 
+	function resetPickerFilters() {
+		pickerQuery = '';
+		pickerCats = [];
+		pickerStatus = 'all';
+	}
+
 	function selectTaskForTarget(t: Task) {
 		if (pickingTarget === 'A') {
 			taskA = t;
 			if (!taskB) {
 				pickingTarget = 'B';
-				pickerQuery = '';
+				resetPickerFilters();
 				return;
 			}
 		} else if (pickingTarget === 'B') {
 			taskB = t;
 		}
 		pickingTarget = null;
-		pickerQuery = '';
+		resetPickerFilters();
 	}
 
 	function swapTasks() {
@@ -311,22 +340,81 @@
 		<!-- Mode Pemilihan Todo -->
 		{#if pickingTarget}
 			<div class="flex flex-col gap-2 flex-1 min-h-0">
-				<div class="relative flex items-center shrink-0">
-					<Search class="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" />
-					<Input
-						bind:value={pickerQuery}
-						placeholder="Cari nama todo atau kategori..."
-						class="h-8 pl-8 pr-7 text-xs"
-					/>
-					{#if pickerQuery}
-						<button
-							type="button"
-							onclick={() => (pickerQuery = '')}
-							class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+				<div class="flex flex-col gap-1.5 shrink-0">
+					<div class="relative flex items-center">
+						<Search class="absolute left-2.5 size-3.5 text-muted-foreground pointer-events-none" />
+						<Input
+							bind:value={pickerQuery}
+							placeholder="Cari nama todo atau kategori..."
+							class="h-8 pl-8 pr-7 text-xs"
+						/>
+						{#if pickerQuery}
+							<button
+								type="button"
+								onclick={() => (pickerQuery = '')}
+								class="absolute right-2 text-muted-foreground hover:text-foreground cursor-pointer"
+							>
+								<X class="size-3" />
+							</button>
+						{/if}
+					</div>
+					<div class="flex flex-wrap items-center gap-1.5">
+						<div class="flex-1 min-w-[140px]">
+							<CategorySelect
+								multiple={true}
+								values={pickerCats}
+								{cats}
+								onToggle={(id) => {
+									if (pickerCats.includes(id)) {
+										pickerCats = pickerCats.filter((x) => x !== id);
+									} else {
+										pickerCats = [...pickerCats, id];
+									}
+								}}
+								onClear={() => (pickerCats = [])}
+							/>
+						</div>
+						<Select.Root
+							type="single"
+							value={pickerStatus}
+							onValueChange={(v: any) => (pickerStatus = v)}
 						>
-							<X class="size-3" />
-						</button>
-					{/if}
+							<Select.Trigger class="h-7 text-xs px-2 gap-1 max-w-[130px]">
+								<span class="truncate">
+									{pickerStatus === 'all'
+										? 'Semua status'
+										: pickerStatus === 'todo'
+											? 'Belum'
+											: pickerStatus === 'inprogress'
+												? 'In Progress'
+												: pickerStatus === 'done'
+													? 'Selesai'
+													: 'Dihapus'}
+								</span>
+							</Select.Trigger>
+							<Select.Content>
+								<Select.Item value="all" class="text-xs">Semua status</Select.Item>
+								<Select.Item value="todo" class="text-xs">Belum</Select.Item>
+								<Select.Item value="inprogress" class="text-xs">In Progress</Select.Item>
+								<Select.Item value="done" class="text-xs">Selesai</Select.Item>
+								<Select.Item value="deleted" class="text-xs">Dihapus</Select.Item>
+							</Select.Content>
+						</Select.Root>
+						{#if pickerCats.length > 0 || pickerStatus !== 'all' || pickerQuery}
+							<Button
+								variant="ghost"
+								size="xs"
+								class="h-7 px-1.5 text-[10px] text-muted-foreground"
+								onclick={() => {
+									pickerCats = [];
+									pickerStatus = 'all';
+									pickerQuery = '';
+								}}
+							>
+								Hapus filter
+							</Button>
+						{/if}
+					</div>
 				</div>
 
 				<div class="flex-1 overflow-y-auto space-y-1 pr-0.5 min-h-52 max-h-[50vh]">
@@ -367,7 +455,10 @@
 							variant="ghost"
 							size="xs"
 							class="text-xs"
-							onclick={() => (pickingTarget = null)}
+							onclick={() => {
+								pickingTarget = null;
+								resetPickerFilters();
+							}}
 						>
 							Kembali ke Perbandingan
 						</Button>
