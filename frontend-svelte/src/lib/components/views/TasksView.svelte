@@ -49,6 +49,7 @@
 	import * as Tabs from '#lib/components/ui/tabs/index.js';
 	import * as Select from '#lib/components/ui/select/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
+	import * as Popover from '#lib/components/ui/popover/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
 	import { mergeProps } from 'bits-ui';
@@ -60,7 +61,7 @@
 	import TaskCompareDialog from '#lib/components/dialogs/TaskCompareDialog.svelte';
 	import BatchDuplicateToCategoriesDialog from '#lib/components/dialogs/BatchDuplicateToCategoriesDialog.svelte';
 	import CustomContextMenu from '#lib/components/CustomContextMenu.svelte';
-	import { formatFullDate, formatTaskDate, getBadgeCls, getSolidCls, getTaskEventTooltip, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
+	import { formatFullDate, formatTaskDate, getBadgeCls, getSolidCls, getTaskEventTooltip, getTaskTags, type Category, type Project, type ProjectStatus, type SortDir, type SortField, type Tab, type Task, type TaskStatus } from '#lib/types.js';
 	import { cn } from '#lib/utils';
 
 	let {
@@ -125,18 +126,18 @@
 		onToggleTheme: () => void;
 		onOpenImportDialog: () => void;
 		onOpenExportDialog: () => void;
-		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
+		onAddTask: (text: string, catId: number, description?: string, tags?: string) => Promise<void>;
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onDuplicateTask?: (t: Task) => void;
-		onToggleDone: (t: Task) => void;
+		onToggleDone: (t: Task, onSuccess?: () => void) => void;
 		onSetTaskStatus?: (id: number, status: TaskStatus) => Promise<void>;
 		onSetTaskStatusBatch?: (ids: number[], status: TaskStatus, onSuccess?: () => void) => Promise<void>;
 		onSetDoneBatch?: (ids: number[], done: boolean, onSuccess?: () => void) => void;
-		onSoftDelete: (t: Task) => void;
+		onSoftDelete: (t: Task, onSuccess?: () => void) => void;
 		onSoftDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
-		onRestore: (t: Task) => Promise<void>;
+		onRestore: (t: Task, onSuccess?: () => void) => Promise<void>;
 		onRestoreBatch?: (ids: number[], onSuccess?: () => void) => Promise<void>;
-		onHardDelete: (t: Task) => void;
+		onHardDelete: (t: Task, onSuccess?: () => void) => void;
 		onHardDeleteBatch?: (ids: number[], onSuccess?: () => void) => void;
 		onDuplicateBatch?: (ids: number[], onSuccess?: () => void) => void;
 		onSetCategoryBatch?: (ids: number[], categoryId: number, onSuccess?: () => void) => void;
@@ -152,14 +153,36 @@
 	let newText = $state('');
 	let showDesc = $state(false);
 	let newDesc = $state('');
+	let newTags = $state<string[]>([]);
+	let showNewTagInput = $state(false);
+	let newTagVal = $state('');
+
+	function handleAddNewTag() {
+		const raw = newTagVal.trim().replace(/^#+/, '').toLowerCase();
+		if (!raw) {
+			showNewTagInput = false;
+			return;
+		}
+		if (!newTags.includes(raw)) {
+			newTags = [...newTags, raw];
+		}
+		newTagVal = '';
+	}
 	let searchQuery = $state('');
 	let searchInput = $state<HTMLInputElement | null>(null);
 	const q = $derived(searchQuery.trim().toLowerCase());
 	const matchesSearch = (t: Task) => {
 		if (!q) return true;
+		if (q.startsWith('#')) {
+			const tagQuery = q.slice(1).trim();
+			if (!tagQuery) return true;
+			const taskTags = getTaskTags(t);
+			return taskTags.some((tag) => tag.includes(tagQuery));
+		}
 		return (
 			t.text.toLowerCase().includes(q) ||
-			(t.description ? t.description.toLowerCase().includes(q) : false)
+			(t.description ? t.description.toLowerCase().includes(q) : false) ||
+			(t.tags ? t.tags.toLowerCase().includes(q) : false)
 		);
 	};
 
@@ -179,8 +202,24 @@
 	let showEditDesc = $state(false);
 	let editInput: HTMLTextAreaElement | null = $state(null);
 	let editDescInput: HTMLTextAreaElement | null = $state(null);
+	let editTags = $state<string[]>([]);
+	let showEditTagInput = $state(false);
+	let editTagVal = $state('');
+
+	function handleEditAddTag() {
+		const raw = editTagVal.trim().replace(/^#+/, '').toLowerCase();
+		if (!raw) {
+			showEditTagInput = false;
+			return;
+		}
+		if (!editTags.includes(raw)) {
+			editTags = [...editTags, raw];
+		}
+		editTagVal = '';
+	}
 	let confirmDiscard = $state(false);
 	let skipEditClose = $state(false);
+	let activeTagPopoverTaskId = $state<number | null>(null);
 
 	let expandedIds = $state<number[]>([]);
 	let detailTask = $state<Task | null>(null);
@@ -301,6 +340,7 @@
 		if (!confirmDiscard && editId !== null) editInput?.focus();
 	});
 	let dragId = $state<number | null>(null);
+	let canDragTaskId = $state<number | null>(null);
 	let overIdx = $state<number | null>(null);
 	let dragRows = $state<Task[] | null>(null);
 
@@ -591,6 +631,9 @@
 		editVal = t.text;
 		editDesc = t.description ?? '';
 		editCat = t.category_id;
+		editTags = getTaskTags(t);
+		showEditTagInput = false;
+		editTagVal = '';
 		showEditDesc = !!t.description;
 		skipEditClose = false;
 		setTimeout(() => {
@@ -613,20 +656,35 @@
 		if (!t) return;
 		const val = editVal.trim();
 		const desc = editDesc.trim();
-		if (
-			save &&
-			val &&
-			(val !== t.text ||
-				desc !== (t.description ?? '') ||
-				editCat !== t.category_id)
-		) {
+		const tagsStr = formatTagsString(editTags);
+		const isChanged =
+			val !== t.text ||
+			desc !== (t.description ?? '') ||
+			editCat !== t.category_id ||
+			tagsStr !== (t.tags ?? '');
+		if (save && val && isChanged) {
+			if (tagsStr !== (t.tags ?? '')) {
+				await invoke('set_task_tags', { id: t.id, tags: tagsStr });
+				t.tags = tagsStr;
+				onTagsChange?.();
+			}
 			await onUpdateTask(t.id, val, editCat ?? t.category_id, desc || undefined);
 		}
 	}
 
 	const onEditKey = (e: KeyboardEvent) => {
-		if (e.key === 'Enter') finishEdit(true);
-		else if (e.key === 'Escape') finishEdit(false);
+		if (e.key === 'Escape') {
+			if (showEditTagInput) {
+				e.preventDefault();
+				e.stopPropagation();
+				showEditTagInput = false;
+				editTagVal = '';
+				return;
+			}
+			finishEdit(false);
+		} else if (e.key === 'Enter') {
+			finishEdit(true);
+		}
 	};
 
 	const onEditDescKey = (e: KeyboardEvent) => {
@@ -647,15 +705,23 @@
 			alert('Belum ada kategori.');
 			return;
 		}
+		const hashMatches = text.match(/#([\w\u00C0-\u017F-]+)/g);
+		const titleTags = hashMatches ? hashMatches.map((m) => m.slice(1).toLowerCase()) : [];
+		const allTags = Array.from(new Set([...newTags, ...titleTags]));
+		const extractedTags = allTags.join(',');
+
 		const desc = (newDesc.trim() || parsedDesc).trim();
 		newText = '';
 		newDesc = '';
 		showDesc = false;
+		newTags = [];
+		showNewTagInput = false;
+		newTagVal = '';
 		tab = 'active';
 		setTimeout(() => {
 			resizeTextarea(newTextInput);
 		}, 0);
-		await onAddTask(text, catId, desc || undefined);
+		await onAddTask(text, catId, desc || undefined, extractedTags || undefined);
 	}
 
 	/* ----- drag reorder ----- */
@@ -672,6 +738,11 @@
 
 	function onDragStart(e: DragEvent, t: Task) {
 		if (!singleCat) return;
+		const target = e.target as HTMLElement | null;
+		if (target?.closest('button, [role="button"], input, textarea, a, select, [data-slot="dropdown-menu-trigger"]')) {
+			e.preventDefault();
+			return;
+		}
 		dragId = t.id;
 		dragRows = [...rows];
 		overIdx = rows.findIndex((r) => r.id === t.id);
@@ -722,6 +793,7 @@
 
 	function onDragEnd() {
 		dragId = null;
+		canDragTaskId = null;
 		overIdx = null;
 		dragRows = null;
 	}
@@ -1243,7 +1315,7 @@
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			<div
 				role="listitem"
-				draggable={!selectMode && editId !== t.id && tab !== 'deleted' && singleCat}
+				draggable={!selectMode && editId !== t.id && tab !== 'deleted' && singleCat && canDragTaskId === t.id}
 				ondragstart={(e) => onDragStart(e, t)}
 				ondragover={(e) => onRowDragOver(e, i)}
 				ondrop={onDrop}
@@ -1254,7 +1326,6 @@
 				oncontextmenu={(e) => handleTaskContextMenu(e, t)}
 				class={cn(
 					'mb-1.5 flex items-start gap-1.5 rounded-lg border bg-card px-2 py-1.5 transition-all select-none',
-					singleCat && tab !== 'deleted' && !selectMode && editId !== t.id ? 'cursor-grab active:cursor-grabbing' : '',
 					selectMode ? 'cursor-pointer hover:border-primary/60' : '',
 					isSelected && 'border-primary ring-1 ring-primary/40 bg-primary/5 dark:bg-primary/10',
 					dragId === t.id && 'opacity-35'
@@ -1288,7 +1359,16 @@
 					</Tooltip.Root>
 				{:else}
 					{#if singleCat && tab !== 'deleted' && editId !== t.id}
-						<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50 mt-1" />
+						<!-- svelte-ignore a11y_no_static_element_interactions -->
+						<span
+							class="cursor-grab active:cursor-grabbing p-1 -m-1 inline-flex items-center justify-center touch-none mt-0.5 text-muted-foreground/40 hover:text-foreground transition-colors"
+							onmouseenter={() => (canDragTaskId = t.id)}
+							onmouseleave={() => { if (dragId === null) canDragTaskId = null; }}
+							onmousedown={() => (canDragTaskId = t.id)}
+							title="Tarik untuk urutkan"
+						>
+							<GripVertical class="size-3.5 shrink-0" />
+						</span>
 					{/if}
 
 					{#if editId !== t.id}
@@ -1300,6 +1380,8 @@
 										<button
 											{...props}
 											type="button"
+											draggable="false"
+											onmousedown={(e) => e.stopPropagation()}
 											onclick={(e) => {
 												e.stopPropagation();
 												onRestore(t);
@@ -1322,9 +1404,11 @@
 												{#snippet child({ props: tooltipProps })}
 													<button
 														{...mergeProps(dropdownProps, tooltipProps, {
-															onclick: (e: MouseEvent) => e.stopPropagation()
+															onclick: (e: MouseEvent) => e.stopPropagation(),
+															onmousedown: (e: MouseEvent) => e.stopPropagation()
 														})}
 														type="button"
+														draggable="false"
 														class="size-4 shrink-0 mt-0.5 rounded hover:bg-muted/70 transition-colors inline-flex items-center justify-center cursor-pointer"
 													>
 														{#if isDone}
@@ -1406,7 +1490,8 @@
 									!!cur &&
 									(editVal.trim() !== cur.text ||
 										editDesc.trim() !== (cur.description ?? '') ||
-										editCat !== cur.category_id);
+										editCat !== cur.category_id ||
+										formatTagsString(editTags) !== (cur.tags ?? ''));
 								if (changed) {
 									confirmDiscard = true;
 								} else {
@@ -1453,6 +1538,54 @@
 									class="min-h-6 py-0.5 px-2 text-xs max-h-32 text-muted-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/50 border-0 shadow-none [&]:pt-0.5 [&]:pb-0.5"
 								/>
 							{/if}
+							{#if editTags.length > 0 || showEditTagInput}
+								<div class="w-full flex items-center justify-start gap-1 flex-wrap px-2 pt-0.5 pb-1 min-w-0 text-left">
+									{#each editTags as tag}
+										<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-muted/70 text-muted-foreground border border-border/50">
+											<span>#{tag}</span>
+											<button
+												type="button"
+												onclick={() => (editTags = editTags.filter((x) => x !== tag))}
+												class="text-muted-foreground/50 hover:text-destructive cursor-pointer"
+												title="Hapus #{tag}"
+											>
+												<X class="size-2.5" />
+											</button>
+										</span>
+									{/each}
+									{#if showEditTagInput}
+										<!-- svelte-ignore a11y_autofocus -->
+										<input
+											type="text"
+											bind:value={editTagVal}
+											placeholder="nama tag... (Esc selesai)"
+											onkeydown={(e: KeyboardEvent) => {
+												if (e.key === 'Escape') {
+													e.preventDefault();
+													e.stopPropagation();
+													showEditTagInput = false;
+													editTagVal = '';
+												} else if (e.key === 'Enter') {
+													e.preventDefault();
+													if (editTagVal.trim()) {
+														handleEditAddTag();
+													} else {
+														showEditTagInput = false;
+													}
+												}
+											}}
+											onblur={() => {
+												if (editTagVal.trim()) {
+													handleEditAddTag();
+												}
+												showEditTagInput = false;
+											}}
+											class="h-5 w-28 bg-background border border-primary rounded px-1.5 text-[10px] font-mono text-foreground focus:outline-none"
+											autofocus
+										/>
+									{/if}
+								</div>
+							{/if}
 							<InputGroupAddon align="block-end" class="!pt-0 !pb-0.5 !px-1 gap-1 bg-transparent border-0 w-full items-center text-xs justify-start">
 								<Tooltip.Root>
 									<Tooltip.Trigger>
@@ -1482,6 +1615,26 @@
 									</Tooltip.Trigger>
 									<Tooltip.Content>
 										{showEditDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+									</Tooltip.Content>
+								</Tooltip.Root>
+								<Tooltip.Root>
+									<Tooltip.Trigger>
+										{#snippet child({ props })}
+											<Button
+												{...props}
+												variant="ghost"
+												size="icon-xs"
+												onclick={() => {
+													showEditTagInput = !showEditTagInput;
+												}}
+												class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
+											>
+												<Tags class="size-3" />
+											</Button>
+										{/snippet}
+									</Tooltip.Trigger>
+									<Tooltip.Content>
+										{showEditTagInput ? 'Tutup Input Tag' : 'Tambah Tag'}
 									</Tooltip.Content>
 								</Tooltip.Root>
 								<Tooltip.Root>
@@ -1533,19 +1686,40 @@
 				{:else}
 					{@const catItem = byId(t.category_id)}
 					{@const catLabel = catItem?.name ?? (t.deleted ? '' : 'Tanpa kategori')}
+					{@const taskTags = getTaskTags(t)}
 					<div class="flex min-w-0 flex-1 flex-col gap-1">
-						{#if catLabel || t.status_updated_at || t.created_at || (t.subtask_count ?? 0) > 0}
+						{#if catLabel || t.status_updated_at || t.created_at || (t.subtask_count ?? 0) > 0 || taskTags.length > 0}
 							<div class="flex items-center gap-1.5 flex-wrap min-w-0">
 								{#if catLabel}
-									<Badge
-										variant="outline"
-										class={cn(
-											'max-w-[70%] whitespace-normal h-auto py-0.5 px-2 text-left text-[10px] font-semibold leading-tight break-words [overflow-wrap:anywhere]',
-											getBadgeCls(catItem?.color)
-										)}
-									>
-										{catLabel}
-									</Badge>
+									{#if catItem}
+										{@const isCatActive = activeCats.includes(catItem.id)}
+										<button
+											type="button"
+											onclick={(e) => {
+												e.stopPropagation();
+												toggleCat(catItem.id);
+											}}
+											class={cn(
+												'max-w-[70%] whitespace-normal h-auto py-0.5 px-2 text-left text-[10px] font-semibold leading-tight break-words [overflow-wrap:anywhere] rounded-full border transition-all cursor-pointer select-none',
+												'hover:opacity-90 hover:scale-[1.02] active:scale-[0.98]',
+												isCatActive ? 'ring-1.5 ring-primary ring-offset-1 ring-offset-background' : 'hover:ring-1 hover:ring-primary/40',
+												getBadgeCls(catItem?.color)
+											)}
+											title={isCatActive ? `Hapus filter kategori "${catLabel}"` : `Tambah filter kategori "${catLabel}"`}
+										>
+											{catLabel}
+										</button>
+									{:else}
+										<Badge
+											variant="outline"
+											class={cn(
+												'max-w-[70%] whitespace-normal h-auto py-0.5 px-2 text-left text-[10px] font-semibold leading-tight break-words [overflow-wrap:anywhere]',
+												getBadgeCls(catItem?.color)
+											)}
+										>
+											{catLabel}
+										</Badge>
+									{/if}
 								{/if}
 								{#if (t.subtask_count ?? 0) > 0}
 									<Tooltip.Root>
@@ -1596,6 +1770,83 @@
 											</Tooltip.Content>
 										</Tooltip.Root>
 									{/if}
+								{/if}
+								{#if taskTags.length > 0}
+									<div class="flex items-center gap-1 shrink-0">
+										{#each taskTags.slice(0, 2) as tag}
+											<button
+												type="button"
+												onclick={(e) => {
+													e.stopPropagation();
+													searchQuery = '#' + tag;
+												}}
+												class="text-[10px] font-mono text-muted-foreground/70 hover:text-primary transition-colors cursor-pointer select-none"
+												title="Filter #{tag}"
+											>
+												#{tag}
+											</button>
+										{/each}
+										{#if taskTags.length > 2}
+											<Popover.Root
+												open={activeTagPopoverTaskId === t.id}
+												onOpenChange={(isOpen) => {
+													if (isOpen) {
+														activeTagPopoverTaskId = t.id;
+													} else if (activeTagPopoverTaskId === t.id) {
+														activeTagPopoverTaskId = null;
+													}
+												}}
+											>
+												<Popover.Trigger
+													class="text-[9px] font-mono text-muted-foreground/70 hover:text-foreground hover:bg-muted/90 px-1.5 py-0.5 rounded bg-muted/60 border border-border/40 transition-colors cursor-pointer select-none inline-flex items-center gap-0.5"
+													onclick={(e) => {
+														e.stopPropagation();
+													}}
+													title="Klik untuk melihat & filter {taskTags.length - 2} tag lainnya ({taskTags.slice(2).map((x) => '#' + x).join(', ')})"
+												>
+													+{taskTags.length - 2}
+												</Popover.Trigger>
+												<Popover.Content
+													align="start"
+													side="bottom"
+													sideOffset={4}
+													class="w-auto min-w-44 max-w-64 p-2.5 gap-2 rounded-xl shadow-xl border border-border bg-popover z-50"
+													onclick={(e) => e.stopPropagation()}
+												>
+													<div class="flex items-center justify-between gap-2 border-b border-border/50 pb-1.5 px-0.5">
+														<span class="text-[11px] font-semibold text-foreground flex items-center gap-1.5">
+															<Tags class="size-3 text-primary" />
+															Daftar Tag ({taskTags.length})
+														</span>
+														<span class="text-[9px] text-muted-foreground/70 font-sans">
+															Klik untuk filter
+														</span>
+													</div>
+													<div class="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto pt-0.5">
+														{#each taskTags as tag, idx}
+															<button
+																type="button"
+																onclick={(e) => {
+																	e.stopPropagation();
+																	searchQuery = '#' + tag;
+																	activeTagPopoverTaskId = null;
+																}}
+																class={cn(
+																	'inline-flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded-md border transition-all cursor-pointer select-none active:scale-[0.98]',
+																	idx < 2
+																		? 'bg-muted/40 text-muted-foreground hover:bg-primary/10 hover:text-primary hover:border-primary/40 border-border/40'
+																		: 'bg-muted/70 text-foreground font-medium hover:bg-primary/10 hover:text-primary hover:border-primary/40 border-border/60'
+																)}
+																title="Filter #{tag}"
+															>
+																<span>#{tag}</span>
+															</button>
+														{/each}
+													</div>
+												</Popover.Content>
+											</Popover.Root>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						{/if}
@@ -1851,6 +2102,54 @@
 					class="min-h-6 py-0.5 px-2 text-xs max-h-32 text-muted-foreground leading-normal bg-transparent focus:bg-transparent placeholder:text-muted-foreground/50 border-0 shadow-none [&]:pt-0.5 [&]:pb-0.5"
 				/>
 			{/if}
+			{#if newTags.length > 0 || showNewTagInput}
+				<div class="w-full flex items-center justify-start gap-1 flex-wrap px-2 pt-0.5 pb-1 min-w-0 text-left">
+					{#each newTags as tag}
+						<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-muted/70 text-muted-foreground border border-border/50">
+							<span>#{tag}</span>
+							<button
+								type="button"
+								onclick={() => (newTags = newTags.filter((t) => t !== tag))}
+								class="text-muted-foreground/50 hover:text-destructive cursor-pointer"
+								title="Hapus #{tag}"
+							>
+								<X class="size-2.5" />
+							</button>
+						</span>
+					{/each}
+					{#if showNewTagInput}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="text"
+							bind:value={newTagVal}
+							placeholder="nama tag... (Esc selesai)"
+							onkeydown={(e: KeyboardEvent) => {
+								if (e.key === 'Escape') {
+									e.preventDefault();
+									e.stopPropagation();
+									showNewTagInput = false;
+									newTagVal = '';
+								} else if (e.key === 'Enter') {
+									e.preventDefault();
+									if (newTagVal.trim()) {
+										handleAddNewTag();
+									} else {
+										showNewTagInput = false;
+									}
+								}
+							}}
+							onblur={() => {
+								if (newTagVal.trim()) {
+									handleAddNewTag();
+								}
+								showNewTagInput = false;
+							}}
+							class="h-5 w-28 bg-background border border-primary rounded px-1.5 text-[10px] font-mono text-foreground focus:outline-none"
+							autofocus
+						/>
+					{/if}
+				</div>
+			{/if}
 			<InputGroupAddon align="block-end" class="!pt-0 !pb-0.5 !px-1 gap-1 bg-transparent border-0 w-full items-center text-xs justify-start">
 				<Tooltip.Root>
 					<Tooltip.Trigger>
@@ -1881,6 +2180,26 @@
 					</Tooltip.Trigger>
 					<Tooltip.Content>
 						{showDesc ? 'Sembunyikan Deskripsi' : 'Tambah Deskripsi'}
+					</Tooltip.Content>
+				</Tooltip.Root>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon-xs"
+								onclick={() => {
+									showNewTagInput = !showNewTagInput;
+								}}
+								class="size-6 shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/50 rounded-md"
+							>
+								<Tags class="size-3" />
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						{showNewTagInput ? 'Tutup Input Tag' : 'Tambah Tag'}
 					</Tooltip.Content>
 				</Tooltip.Root>
 				<Tooltip.Root>
@@ -1957,7 +2276,14 @@
 		onRestore={onRestore}
 		onHardDelete={onHardDelete}
 		onStartEdit={(t) => startEdit(t)}
+		onUpdateTask={onUpdateTask}
+		onOpenAddCategory={onOpenAddCategory}
 		onSubtasksChange={onRefreshTasks}
+		onTagsChange={onRefreshTasks}
+		onFilterCategory={(catId) => {
+			toggleCat(catId);
+			detailTask = null;
+		}}
 	/>
 
 	<ProjectDetailDialog

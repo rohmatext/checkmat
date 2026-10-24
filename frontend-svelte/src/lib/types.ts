@@ -14,7 +14,29 @@ export type Task = {
 	status_updated_at?: string;
 	subtask_count?: number;
 	subtask_done_count?: number;
+	tags?: string;
 };
+
+export function getTaskTags(task: Task | { tags?: string; text?: string } | null | undefined): string[] {
+	if (!task) return [];
+	const set = new Set<string>();
+	if (task.tags) {
+		for (const t of task.tags.split(',')) {
+			const clean = t.trim().replace(/^#+/, '').toLowerCase();
+			if (clean) set.add(clean);
+		}
+	}
+	return Array.from(set);
+}
+
+export function formatTagsString(tags: string[]): string {
+	const set = new Set<string>();
+	for (const t of tags) {
+		const clean = t.trim().replace(/^#+/, '').toLowerCase();
+		if (clean) set.add(clean);
+	}
+	return Array.from(set).join(',');
+}
 
 export type Subtask = {
 	id: number;

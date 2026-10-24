@@ -259,8 +259,8 @@
 		}
 	}
 
-	async function handleAddTask(text: string, catId: number, description?: string) {
-		await invoke('add_task', { text, categoryId: catId, projectId: activeProject, description });
+	async function handleAddTask(text: string, catId: number, description?: string, tags?: string) {
+		await invoke('add_task', { text, categoryId: catId, projectId: activeProject, description, tags });
 		await refresh();
 		toast.success('Todo berhasil ditambahkan');
 		if (activeCats.length > 0 && !activeCats.includes(catId)) {
@@ -290,7 +290,7 @@
 		}
 	}
 
-	function handleToggleDone(t: Task) {
+	function handleToggleDone(t: Task, onSuccess?: () => void) {
 		const msg = t.done
 			? `Kembalikan "${t.text}" ke belum selesai?`
 			: `Tandai "${t.text}" selesai?`;
@@ -298,6 +298,7 @@
 			await invoke('set_done', { id: t.id, done: !t.done });
 			await refresh();
 			toast.success(t.done ? 'Todo dikembalikan ke belum selesai' : 'Todo ditandai selesai');
+			onSuccess?.();
 		}, 'default');
 	}
 
@@ -308,25 +309,28 @@
 		toast.success(`Status diubah ke ${label}`);
 	}
 
-	function handleSoftDelete(t: Task) {
+	function handleSoftDelete(t: Task, onSuccess?: () => void) {
 		askConfirm(`Hapus "${t.text}"? Bisa dipulihkan di tab Dihapus.`, async () => {
 			await invoke('soft_delete', { id: t.id });
 			await refresh();
 			toast.success('Todo dipindahkan ke Dihapus');
+			onSuccess?.();
 		}, 'destructive');
 	}
 
-	async function handleRestore(t: Task) {
+	async function handleRestore(t: Task, onSuccess?: () => void) {
 		await invoke('restore', { id: t.id });
 		await refresh();
 		toast.success('Todo berhasil dipulihkan');
+		onSuccess?.();
 	}
 
-	function handleHardDelete(t: Task) {
+	function handleHardDelete(t: Task, onSuccess?: () => void) {
 		askConfirm(`Hapus PERMANEN "${t.text}"? Tindakan ini tidak bisa dibatalkan.`, async () => {
 			await invoke('hard_delete', { id: t.id });
 			await refresh();
 			toast.success('Todo berhasil dihapus permanen');
+			onSuccess?.();
 		}, 'destructive');
 	}
 

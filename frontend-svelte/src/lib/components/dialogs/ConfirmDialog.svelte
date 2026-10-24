@@ -37,7 +37,7 @@
 </script>
 
 <AlertDialog.Root open={confirmState !== null} onOpenChange={(open) => { if (!open) confirmState = null; }}>
-	<AlertDialog.Content class="max-w-xs gap-4 p-4">
+	<AlertDialog.Content class="max-w-xs gap-4 p-4 !z-[100]">
 		<AlertDialog.Header class="gap-1 text-left">
 			<AlertDialog.Title class="text-sm font-semibold">Konfirmasi</AlertDialog.Title>
 			<AlertDialog.Description class="text-xs leading-relaxed break-words [overflow-wrap:anywhere] select-text">{confirmState?.msg ?? ''}</AlertDialog.Description>
@@ -55,3 +55,12 @@
 		</AlertDialog.Footer>
 	</AlertDialog.Content>
 </AlertDialog.Root>
+
+<style>
+	:global([data-slot="alert-dialog-overlay"]) {
+		z-index: 99 !important;
+	}
+	:global([data-slot="alert-dialog-content"]) {
+		z-index: 100 !important;
+	}
+</style>

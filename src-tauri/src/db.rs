@@ -101,6 +101,8 @@ pub struct Task {
     pub subtask_count: i64,
     #[serde(default)]
     pub subtask_done_count: i64,
+    #[serde(default)]
+    pub tags: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -340,6 +342,21 @@ impl Db {
             .ok();
             conn.execute(
                 "UPDATE tasks SET status_updated_at = created_at WHERE status_updated_at = ''",
+                [],
+            )
+            .ok();
+        }
+
+        let has_tags_col: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM pragma_table_info('tasks') WHERE name='tags')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(false);
+        if !has_tags_col {
+            conn.execute(
+                "ALTER TABLE tasks ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
                 [],
             )
             .ok();
@@ -606,7 +623,8 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
         .prepare(
             "SELECT t.id, t.text, COALESCE(t.description,''), COALESCE(t.status, CASE WHEN t.done!=0 THEN 'done' ELSE 'todo' END), t.done, t.deleted, t.pos, t.category_id, t.project_id, COALESCE(t.created_at, ''), COALESCE(NULLIF(t.status_updated_at, ''), t.created_at, ''),
              COALESCE((SELECT COUNT(1) FROM subtasks s WHERE s.task_id = t.id), 0),
-             COALESCE((SELECT COUNT(1) FROM subtasks s WHERE s.task_id = t.id AND s.done != 0), 0)
+             COALESCE((SELECT COUNT(1) FROM subtasks s WHERE s.task_id = t.id AND s.done != 0), 0),
+             COALESCE(t.tags, '')
              FROM tasks t
              WHERE t.project_id=? ORDER BY t.pos ASC, t.id DESC",
         )
@@ -627,6 +645,7 @@ pub fn list_tasks(db: tauri::State<Db>, project_id: i64) -> R<Vec<Task>> {
                 status_updated_at: r.get(10)?,
                 subtask_count: r.get(11)?,
                 subtask_done_count: r.get(12)?,
+                tags: r.get(13)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -950,6 +969,7 @@ pub fn add_task(
     category_id: i64,
     project_id: i64,
     description: Option<String>,
+    tags: Option<String>,
 ) -> R<()> {
     let text = text.trim();
     if text.is_empty() {
@@ -968,11 +988,12 @@ pub fn add_task(
     }
     let pos = top_pos(&c, false, category_id);
     let desc = description.unwrap_or_default().trim().to_string();
+    let tags_val = tags.unwrap_or_default().trim().to_string();
     let t = now();
     c.execute(
-        "INSERT INTO tasks(text, description, status, done, deleted, created_at, status_updated_at, pos, category_id, project_id)
-         VALUES(?, ?, 'todo', 0, 0, ?, ?, ?, ?, ?)",
-        rusqlite::params![text, desc, t.clone(), t.clone(), pos, category_id, project_id],
+        "INSERT INTO tasks(text, description, status, done, deleted, created_at, status_updated_at, pos, category_id, project_id, tags)
+         VALUES(?, ?, 'todo', 0, 0, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![text, desc, t.clone(), t.clone(), pos, category_id, project_id, tags_val],
     )
     .map_err(|e| e.to_string())?;
     let new_task_id = c.last_insert_rowid();
@@ -993,6 +1014,7 @@ pub fn update_task(
     category_id: i64,
     project_id: i64,
     description: Option<String>,
+    tags: Option<String>,
 ) -> R<()> {
     let text = text.trim();
     if text.is_empty() {
@@ -1017,16 +1039,58 @@ pub fn update_task(
         top_pos(&c, false, category_id)
     };
     let desc = description.unwrap_or_default().trim().to_string();
-    let changed = c.execute(
-        "UPDATE tasks SET text=?, description=?, category_id=?, pos=? WHERE id=? AND project_id=?",
-        rusqlite::params![text, desc, category_id, pos, id, project_id],
-    )
-    .map_err(|e| e.to_string())?;
+    let changed = if let Some(t_tags) = tags {
+        c.execute(
+            "UPDATE tasks SET text=?, description=?, category_id=?, pos=?, tags=? WHERE id=? AND project_id=?",
+            rusqlite::params![text, desc, category_id, pos, t_tags.trim(), id, project_id],
+        )
+        .map_err(|e| e.to_string())?
+    } else {
+        c.execute(
+            "UPDATE tasks SET text=?, description=?, category_id=?, pos=? WHERE id=? AND project_id=?",
+            rusqlite::params![text, desc, category_id, pos, id, project_id],
+        )
+        .map_err(|e| e.to_string())?
+    };
     if changed == 0 {
         return Err("Todo tidak ditemukan di space aktif".into());
     }
     save(&c, &db.path);
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_task_tags(db: tauri::State<Db>, id: i64, tags: String) -> R<()> {
+    let c = conn(&db);
+    let tags = tags.trim();
+    c.execute(
+        "UPDATE tasks SET tags=? WHERE id=?",
+        rusqlite::params![tags, id],
+    )
+    .map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn list_project_tags(db: tauri::State<Db>, project_id: i64) -> R<Vec<String>> {
+    let c = conn(&db);
+    let mut st = c
+        .prepare("SELECT DISTINCT tags FROM tasks WHERE project_id=? AND tags != '' AND deleted=0")
+        .map_err(|e| e.to_string())?;
+    let rows = st
+        .query_map([project_id], |r| r.get::<_, String>(0))
+        .map_err(|e| e.to_string())?;
+    let mut all_tags = std::collections::BTreeSet::new();
+    for row in rows.flatten() {
+        for t in row.split(',') {
+            let trimmed = t.trim().trim_start_matches('#');
+            if !trimmed.is_empty() {
+                all_tags.insert(trimmed.to_lowercase());
+            }
+        }
+    }
+    Ok(all_tags.into_iter().collect())
 }
 
 #[tauri::command]

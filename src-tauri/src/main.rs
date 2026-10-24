@@ -206,6 +206,8 @@ fn main() {
             db::default_export_dir,
             db::write_csv_template,
             db::import_csv,
+            db::set_task_tags,
+            db::list_project_tags,
             db::get_lock_status,
             db::set_pin,
             db::verify_pin,

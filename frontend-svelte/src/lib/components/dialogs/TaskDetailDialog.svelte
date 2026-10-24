@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, Clock, ArrowLeftRight, Plus, GripVertical, ChevronDown, Ellipsis } from '@lucide/svelte';
+	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, Clock, ArrowLeftRight, Plus, GripVertical, ChevronDown, Ellipsis, X } from '@lucide/svelte';
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -12,8 +12,9 @@
 		InputGroupInput
 	} from '#lib/components/ui/input-group/index.js';
 	import { invoke } from '@tauri-apps/api/core';
-	import { formatFullDate, getBadgeCls, getTaskEventTooltip, type Category, type Task, type TaskEvent, type TaskStatus, type Subtask } from '#lib/types.js';
+	import { formatFullDate, getBadgeCls, getTaskEventTooltip, getTaskTags, formatTagsString, type Category, type Task, type TaskEvent, type TaskStatus, type Subtask } from '#lib/types.js';
 	import CopyableText from '#lib/components/CopyableText.svelte';
+	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import { cn } from '#lib/utils';
 
 	let {
@@ -28,23 +29,50 @@
 		onHardDelete,
 		onStartEdit,
 		onCompare,
-		onSubtasksChange
+		onSubtasksChange,
+		onTagsChange,
+		onFilterCategory,
+		onUpdateTask,
+		onOpenAddCategory
 	}: {
 		task: Task | null;
 		cats: Category[];
 		onDuplicate?: (t: Task) => void;
 		onDuplicateToCategories?: (t: Task) => void;
-		onToggleDone?: (t: Task) => void;
+		onToggleDone?: (t: Task, onSuccess?: () => void) => void;
 		onSetStatus?: (id: number, status: TaskStatus) => void;
-		onDelete?: (t: Task) => void;
-		onRestore?: (t: Task) => void;
-		onHardDelete?: (t: Task) => void;
+		onDelete?: (t: Task, onSuccess?: () => void) => void;
+		onRestore?: (t: Task, onSuccess?: () => void) => void;
+		onHardDelete?: (t: Task, onSuccess?: () => void) => void;
 		onStartEdit?: (t: Task) => void;
 		onCompare?: (t: Task) => void;
 		onSubtasksChange?: () => void;
+		onTagsChange?: () => void;
+		onFilterCategory?: (catId: number) => void;
+		onUpdateTask?: (id: number, text: string, categoryId: number, description?: string) => Promise<void> | void;
+		onOpenAddCategory?: () => void;
 	} = $props();
 
 	const category = $derived(cats.find((c) => c.id === task?.category_id));
+	const taskTags = $derived(getTaskTags(task));
+	let isEditing = $state(false);
+	let editTitle = $state('');
+	let editDescription = $state('');
+	let editCategoryId = $state<number | null>(null);
+	let isSaving = $state(false);
+	let editTitleInput = $state<HTMLTextAreaElement | null>(null);
+	let editDescInput = $state<HTMLTextAreaElement | null>(null);
+
+	function resizeTextarea(el: HTMLTextAreaElement | null) {
+		if (!el) return;
+		el.style.height = 'auto';
+		el.style.height = `${el.scrollHeight}px`;
+	}
+	let editTags = $state<string[]>([]);
+	let showEditAddTagInput = $state(false);
+	let editNewTagInput = $state('');
+	let showAddTagInput = $state(false);
+	let newTagInput = $state('');
 	let events = $state<TaskEvent[]>([]);
 	let subtasks = $state<Subtask[]>([]);
 	let newSubtaskTitle = $state('');
@@ -54,6 +82,7 @@
 
 	/* ----- drag reorder subtasks ----- */
 	let dragSubtaskId = $state<number | null>(null);
+	let canDragSubtaskId = $state<number | null>(null);
 	let overSubtaskIdx = $state<number | null>(null);
 	let dragSubtasks = $state<Subtask[] | null>(null);
 
@@ -68,7 +97,11 @@
 	}
 
 	function onSubtaskDragStart(e: DragEvent, st: Subtask) {
-		if (editingSubtaskId !== null || task?.deleted) return;
+		const target = e.target as HTMLElement | null;
+		if (editingSubtaskId !== null || task?.deleted || target?.closest('button, [role="button"], input, textarea')) {
+			e.preventDefault();
+			return;
+		}
 		dragSubtaskId = st.id;
 		dragSubtasks = [...subtasks];
 		overSubtaskIdx = subtasks.findIndex((s) => s.id === st.id);
@@ -124,6 +157,7 @@
 
 	function onSubtaskDragEnd() {
 		dragSubtaskId = null;
+		canDragSubtaskId = null;
 		overSubtaskIdx = null;
 		dragSubtasks = null;
 	}
@@ -133,10 +167,17 @@
 	const progressPct = $derived(subtaskCount > 0 ? Math.round((subtaskDoneCount / subtaskCount) * 100) : 0);
 
 	$effect(() => {
+		isEditing = false;
+		editTitle = task?.text ?? '';
+		editDescription = task?.description ?? '';
+		editCategoryId = task?.category_id ?? null;
+		isSaving = false;
 		dragSubtaskId = null;
 		overSubtaskIdx = null;
 		dragSubtasks = null;
 		isHistoryOpen = false;
+		showAddTagInput = false;
+		newTagInput = '';
 		if (task) {
 			invoke<TaskEvent[]>('list_task_events', { taskId: task.id })
 				.then((res) => {
@@ -250,44 +291,169 @@
 
 	function handleCompare() {
 		if (!task || !onCompare) return;
-		const cur = task;
-		task = null;
-		onCompare(cur);
+		onCompare(task);
 	}
 
 	function handleToggleDone() {
 		if (!task || !onToggleDone || task.deleted) return;
 		const cur = task;
-		onToggleDone(cur);
-		task = null;
+		onToggleDone(cur, () => {
+			if (task && task.id === cur.id) {
+				task.done = !cur.done;
+				task.status = task.done ? 'done' : 'todo';
+			}
+		});
 	}
 
 	function handleDelete() {
 		if (!task || !onDelete || task.deleted) return;
 		const cur = task;
-		task = null;
-		onDelete(cur);
+		onDelete(cur, () => {
+			task = null;
+		});
 	}
 
 	function handleRestore() {
 		if (!task || !onRestore) return;
 		const cur = task;
-		task = null;
-		onRestore(cur);
+		onRestore(cur, () => {
+			task = null;
+		});
 	}
 
 	function handleHardDelete() {
 		if (!task || !onHardDelete) return;
 		const cur = task;
-		task = null;
-		onHardDelete(cur);
+		onHardDelete(cur, () => {
+			task = null;
+		});
 	}
 
 	function handleEdit() {
-		if (!task || !onStartEdit || task.deleted) return;
-		const cur = task;
-		task = null;
-		onStartEdit(cur);
+		if (!task || task.deleted) return;
+		editTitle = task.text;
+		editDescription = task.description ?? '';
+		editCategoryId = task.category_id;
+		editTags = getTaskTags(task);
+		showEditAddTagInput = false;
+		editNewTagInput = '';
+		isEditing = true;
+		setTimeout(() => {
+			if (editTitleInput) resizeTextarea(editTitleInput);
+			if (editDescInput) resizeTextarea(editDescInput);
+			editTitleInput?.focus();
+		}, 0);
+	}
+
+	function handleCancelEdit() {
+		isEditing = false;
+		editTitle = task?.text ?? '';
+		editDescription = task?.description ?? '';
+		editCategoryId = task?.category_id ?? null;
+		editTags = [];
+		showEditAddTagInput = false;
+		editNewTagInput = '';
+	}
+
+	function handleEditAddTag() {
+		const raw = editNewTagInput.trim().replace(/^#+/, '').toLowerCase();
+		if (!raw) {
+			showEditAddTagInput = false;
+			return;
+		}
+		if (!editTags.includes(raw)) {
+			editTags = [...editTags, raw];
+		}
+		editNewTagInput = '';
+	}
+
+	function insertCopyTag(target: 'title' | 'desc') {
+		if (target === 'title') {
+			const el = document.getElementById('edit-task-title-input') as HTMLTextAreaElement | null;
+			if (el) {
+				const start = el.selectionStart ?? editTitle.length;
+				const end = el.selectionEnd ?? editTitle.length;
+				const sel = editTitle.slice(start, end);
+				editTitle = editTitle.slice(0, start) + `[copy]${sel}[/copy]` + editTitle.slice(end);
+				setTimeout(() => {
+					el.focus();
+					const cursor = start + 6 + sel.length;
+					el.setSelectionRange(cursor, cursor);
+				}, 0);
+			} else {
+				editTitle += '[copy][/copy]';
+			}
+		} else {
+			const el = document.getElementById('edit-task-desc-input') as HTMLTextAreaElement | null;
+			if (el) {
+				const start = el.selectionStart ?? editDescription.length;
+				const end = el.selectionEnd ?? editDescription.length;
+				const sel = editDescription.slice(start, end);
+				editDescription = editDescription.slice(0, start) + `[copy]${sel}[/copy]` + editDescription.slice(end);
+				setTimeout(() => {
+					el.focus();
+					const cursor = start + 6 + sel.length;
+					el.setSelectionRange(cursor, cursor);
+				}, 0);
+			} else {
+				editDescription += '[copy][/copy]';
+			}
+		}
+	}
+
+	async function handleSaveEdit() {
+		if (!task || !editTitle.trim() || isSaving) return;
+		const trimmedTitle = editTitle.trim();
+		const trimmedDesc = editDescription.trim();
+		const newCatId = editCategoryId ?? task.category_id;
+		const tagsStr = formatTagsString(editTags);
+		isSaving = true;
+		try {
+			if (onUpdateTask) {
+				await onUpdateTask(task.id, trimmedTitle, newCatId, trimmedDesc || undefined);
+			} else {
+				await invoke('update_task', {
+					id: task.id,
+					text: trimmedTitle,
+					categoryId: newCatId,
+					description: trimmedDesc || undefined
+				});
+				onSubtasksChange?.();
+			}
+			if ((task.tags ?? '') !== tagsStr) {
+				await invoke('set_task_tags', { id: task.id, tags: tagsStr });
+				task.tags = tagsStr;
+				onTagsChange?.();
+			}
+			task.text = trimmedTitle;
+			task.category_id = newCatId;
+			task.description = trimmedDesc || undefined;
+			isEditing = false;
+		} catch (e) {
+			console.error('Gagal memperbarui todo:', e);
+		} finally {
+			isSaving = false;
+		}
+	}
+
+	function handleEditTitleKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+			e.preventDefault();
+			handleSaveEdit();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			handleCancelEdit();
+		}
+	}
+
+	function handleEditDescKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+			e.preventDefault();
+			handleSaveEdit();
+		} else if (e.key === 'Escape') {
+			e.preventDefault();
+			handleCancelEdit();
+		}
 	}
 
 	async function handleSetStatus(newStatus: TaskStatus) {
@@ -303,19 +469,94 @@
 			// ignore
 		}
 	}
+
+	async function handleAddTag() {
+		if (!task || task.deleted) return;
+		const raw = newTagInput.trim().replace(/^#+/, '').toLowerCase();
+		if (!raw) {
+			showAddTagInput = false;
+			return;
+		}
+		newTagInput = '';
+		const current = getTaskTags(task);
+		if (!current.includes(raw)) {
+			const updated = [...current, raw];
+			const tagsStr = formatTagsString(updated);
+			task.tags = tagsStr;
+			try {
+				await invoke('set_task_tags', { id: task.id, tags: tagsStr });
+				onTagsChange?.();
+			} catch (e) {
+				console.error('Gagal menambah tag:', e);
+			}
+		}
+	}
+
+	async function handleRemoveTag(tagToRemove: string) {
+		if (!task || task.deleted) return;
+		const current = getTaskTags(task);
+		const updated = current.filter((t) => t !== tagToRemove);
+		const tagsStr = formatTagsString(updated);
+		task.tags = tagsStr;
+		try {
+			await invoke('set_task_tags', { id: task.id, tags: tagsStr });
+			onTagsChange?.();
+		} catch (e) {
+			console.error('Gagal menghapus tag:', e);
+		}
+	}
 </script>
 
 <Dialog.Root open={task !== null} onOpenChange={(open) => { if (!open) task = null; }}>
-	<Dialog.Content class="max-w-md gap-4 p-5">
+	<Dialog.Content
+		class="max-w-md gap-4 p-5"
+		onOpenAutoFocus={(e) => e.preventDefault()}
+		trapFocus={false}
+		onEscapeKeydown={(e) => {
+			if (showAddTagInput) {
+				e.preventDefault();
+				showAddTagInput = false;
+				newTagInput = '';
+				return;
+			}
+			if (showEditAddTagInput) {
+				e.preventDefault();
+				showEditAddTagInput = false;
+				editNewTagInput = '';
+				return;
+			}
+			if (editingSubtaskId !== null) {
+				e.preventDefault();
+				editingSubtaskId = null;
+				editingSubtaskTitle = '';
+				return;
+			}
+		}}
+	>
 		<Dialog.Header class="gap-1.5 text-left">
 			<div class="flex items-center gap-1.5 flex-wrap min-w-0">
 				{#if category}
-					<Badge
-						variant="outline"
-						class={cn('max-w-40 truncate text-[11px] font-semibold', getBadgeCls(category.color))}
-					>
-						{category.name}
-					</Badge>
+					{#if onFilterCategory}
+						<button
+							type="button"
+							tabindex="-1"
+							onclick={() => onFilterCategory(category.id)}
+							class={cn(
+								'max-w-40 truncate text-[11px] font-semibold px-2.5 py-0.5 rounded-full border transition-all cursor-pointer hover:opacity-90 hover:scale-[1.02] active:scale-[0.98] hover:ring-1 hover:ring-primary/40 select-none inline-flex items-center gap-1 focus:outline-none focus-visible:outline-none focus:ring-0',
+								getBadgeCls(category.color)
+							)}
+							title={`Filter todo berdasarkan kategori "${category.name}"`}
+						>
+							<span class="truncate">{category.name}</span>
+						</button>
+					{:else}
+						<Badge
+							variant="outline"
+							class={cn('max-w-40 truncate text-[11px] font-semibold', getBadgeCls(category.color))}
+						>
+							{category.name}
+						</Badge>
+					{/if}
 				{/if}
 				{#if task?.deleted}
 					<Badge variant="outline" class="border-destructive/30 bg-destructive/10 text-destructive text-[10px]">
@@ -328,8 +569,9 @@
 								<button
 									type="button"
 									{...props}
+									tabindex="-1"
 									class={cn(
-										'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border transition-all cursor-pointer shadow-xs select-none',
+										'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border transition-all cursor-pointer shadow-xs select-none focus:outline-none focus-visible:outline-none focus:ring-0',
 										task.done || task.status === 'done'
 											? 'border-emerald-300/80 bg-emerald-50 text-emerald-700 hover:bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
 											: task.status === 'inprogress'
@@ -412,9 +654,235 @@
 				{/if}
 			</div>
 			<Dialog.Title class="text-base font-semibold leading-snug break-words [overflow-wrap:anywhere] select-text">
-				<CopyableText text={task?.text ?? ''} />
+				{#if isEditing}
+					<span class="text-sm font-semibold text-foreground">Edit Todo</span>
+				{:else}
+					<CopyableText text={task?.text ?? ''} />
+				{/if}
 			</Dialog.Title>
 		</Dialog.Header>
+
+		{#if isEditing}
+			<div class="space-y-3 py-1">
+				<div class="space-y-1.5">
+					<div class="flex items-center justify-between">
+						<label for="edit-task-title-input" class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+							Judul Todo <span class="text-destructive">*</span>
+						</label>
+						<button
+							type="button"
+							onclick={() => insertCopyTag('title')}
+							class="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 cursor-pointer transition-colors"
+							title="Sisipkan [copy]...[/copy]"
+						>
+							<Copy class="size-2.5" />
+							<span>Copy tag</span>
+						</button>
+					</div>
+					<textarea
+						id="edit-task-title-input"
+						bind:this={editTitleInput}
+						bind:value={editTitle}
+						rows={1}
+						style="field-sizing: content;"
+						placeholder="Tulis judul todo..."
+						onkeydown={handleEditTitleKeydown}
+						oninput={(e) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
+						class="w-full min-h-8 max-h-36 bg-background border border-input focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-lg p-2 text-xs text-foreground focus:outline-none resize-none leading-relaxed transition-colors [field-sizing:content]"
+					></textarea>
+				</div>
+
+				<div class="space-y-1.5">
+					<span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+						Kategori
+					</span>
+					<CategorySelect
+						{cats}
+						value={editCategoryId}
+						placeholder="Pilih Kategori"
+						onSelect={(id) => {
+							if (id !== null) editCategoryId = id;
+						}}
+						{onOpenAddCategory}
+					/>
+				</div>
+
+				<div class="space-y-1.5">
+					<span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider block">
+						Tags
+					</span>
+					<div class="w-full flex items-center justify-start gap-1.5 flex-wrap min-w-0 text-left">
+						{#each editTags as tag (tag)}
+							<span
+								class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono bg-muted/60 text-muted-foreground border border-border/50 group select-none"
+							>
+								<span>#{tag}</span>
+								<button
+									type="button"
+									onclick={() => (editTags = editTags.filter((t) => t !== tag))}
+									class="text-muted-foreground/50 hover:text-destructive transition-colors cursor-pointer"
+									title="Hapus tag #{tag}"
+								>
+									<X class="size-2.5" />
+								</button>
+							</span>
+						{/each}
+
+						{#if showEditAddTagInput}
+							<!-- svelte-ignore a11y_autofocus -->
+							<input
+								type="text"
+								bind:value={editNewTagInput}
+								placeholder="nama tag... (Esc selesai)"
+								onkeydown={(e) => {
+									if (e.key === 'Escape') {
+										e.preventDefault();
+										e.stopPropagation();
+										e.stopImmediatePropagation();
+										showEditAddTagInput = false;
+										editNewTagInput = '';
+									} else if (e.key === 'Enter') {
+										e.preventDefault();
+										if (editNewTagInput.trim()) {
+											handleEditAddTag();
+										} else {
+											showEditAddTagInput = false;
+										}
+									}
+								}}
+								onblur={() => {
+									if (editNewTagInput.trim()) {
+										handleEditAddTag();
+									}
+									showEditAddTagInput = false;
+								}}
+								class="h-5 w-28 bg-background border border-primary rounded px-1.5 text-[10px] font-mono text-foreground focus:outline-none"
+								autofocus
+							/>
+						{:else}
+							<button
+								type="button"
+								onclick={() => (showEditAddTagInput = true)}
+								class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+								title="Tambah tag"
+							>
+								<Plus class="size-2.5" />
+								<span class="text-[10px]">Tag</span>
+							</button>
+						{/if}
+					</div>
+				</div>
+
+				<div class="space-y-1.5">
+					<div class="flex items-center justify-between">
+						<label for="edit-task-desc-input" class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+							Deskripsi (opsional)
+						</label>
+						<button
+							type="button"
+							onclick={() => insertCopyTag('desc')}
+							class="text-[10px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1 cursor-pointer transition-colors"
+							title="Sisipkan [copy]...[/copy]"
+						>
+							<Copy class="size-2.5" />
+							<span>Copy tag</span>
+						</button>
+					</div>
+					<textarea
+						id="edit-task-desc-input"
+						bind:this={editDescInput}
+						bind:value={editDescription}
+						rows={2}
+						style="field-sizing: content;"
+						placeholder="Tambahkan catatan atau deskripsi..."
+						onkeydown={handleEditDescKeydown}
+						oninput={(e) => resizeTextarea(e.currentTarget as HTMLTextAreaElement)}
+						class="w-full min-h-12 max-h-48 bg-background border border-input focus:border-primary focus:ring-1 focus:ring-primary/20 rounded-lg p-2 text-xs text-foreground focus:outline-none resize-y leading-relaxed transition-colors [field-sizing:content]"
+					></textarea>
+					<p class="text-[10px] text-muted-foreground/70">
+						Tekan <kbd class="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Enter</kbd> untuk simpan (<kbd class="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Shift+Enter</kbd> baris baru), <kbd class="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Ctrl+Enter</kbd> pada deskripsi, <kbd class="px-1 py-0.5 rounded bg-muted font-mono text-[9px]">Esc</kbd> batal.
+					</p>
+				</div>
+			</div>
+		{:else}
+
+		<!-- Tags Section -->
+		<div class="w-full flex items-center justify-start gap-1.5 flex-wrap min-w-0 text-left">
+			{#each taskTags as tag (tag)}
+				<span
+					class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono bg-muted/60 text-muted-foreground border border-border/50 group select-none"
+				>
+					<span>#{tag}</span>
+					{#if !task?.deleted}
+						<button
+							type="button"
+							onclick={() => handleRemoveTag(tag)}
+							class="text-muted-foreground/50 hover:text-destructive transition-colors cursor-pointer"
+							title="Hapus tag #{tag}"
+						>
+							<X class="size-2.5" />
+						</button>
+					{/if}
+				</span>
+			{/each}
+
+			{#if !task?.deleted}
+				{#if showAddTagInput}
+					<form
+						onsubmit={(e) => {
+							e.preventDefault();
+							if (newTagInput.trim()) {
+								handleAddTag();
+							} else {
+								showAddTagInput = false;
+							}
+						}}
+						class="inline-flex items-center gap-1"
+					>
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="text"
+							bind:value={newTagInput}
+							placeholder="nama tag... (Esc selesai)"
+							onkeydown={(e) => {
+								if (e.key === 'Escape') {
+									e.preventDefault();
+									e.stopPropagation();
+									e.stopImmediatePropagation();
+									showAddTagInput = false;
+									newTagInput = '';
+								} else if (e.key === 'Enter') {
+									e.preventDefault();
+									if (newTagInput.trim()) {
+										handleAddTag();
+									} else {
+										showAddTagInput = false;
+									}
+								}
+							}}
+							onblur={() => {
+								if (newTagInput.trim()) {
+									handleAddTag();
+								}
+								showAddTagInput = false;
+							}}
+							class="h-5 w-28 bg-background border border-primary rounded px-1.5 text-[10px] font-mono text-foreground focus:outline-none"
+							autofocus
+						/>
+					</form>
+				{:else}
+					<button
+						type="button"
+						onclick={() => (showAddTagInput = true)}
+						class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors cursor-pointer"
+						title="Tambah tag"
+					>
+						<Plus class="size-2.5" />
+						<span class="text-[10px]">Tag</span>
+					</button>
+				{/if}
+			{/if}
+		</div>
 
 		{#if task?.description}
 			<div class="space-y-1">
@@ -468,25 +936,38 @@
 						<div
 							data-subtask-item
 							role="listitem"
-							draggable={editingSubtaskId === null && !task?.deleted}
+							draggable={canDragSubtaskId === st.id && editingSubtaskId === null && !task?.deleted}
 							ondragstart={(e) => onSubtaskDragStart(e, st)}
 							ondragover={(e) => onSubtaskDragOver(e, idx)}
 							ondrop={onSubtaskDrop}
 							ondragend={onSubtaskDragEnd}
 							class={cn(
 								'group flex items-center justify-between gap-1.5 px-1.5 py-1 rounded hover:bg-muted/40 transition-colors min-w-0 select-none',
-								editingSubtaskId === null && !task?.deleted && 'cursor-grab active:cursor-grabbing',
 								dragSubtaskId === st.id && 'opacity-40 bg-accent/40 ring-1 ring-primary/40'
 							)}
 						>
 							<div class="flex items-center gap-1.5 min-w-0 flex-1">
 								{#if !task?.deleted && editingSubtaskId === null}
-									<GripVertical class="size-3 text-muted-foreground/40 group-hover:text-muted-foreground/80 shrink-0 touch-none" />
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<span
+										class="cursor-grab active:cursor-grabbing p-1 -m-1 inline-flex items-center justify-center touch-none text-muted-foreground/40 group-hover:text-muted-foreground/80 hover:text-foreground transition-colors"
+										onmouseenter={() => (canDragSubtaskId = st.id)}
+										onmouseleave={() => { if (dragSubtaskId === null) canDragSubtaskId = null; }}
+										onmousedown={() => (canDragSubtaskId = st.id)}
+										title="Tarik untuk urutkan"
+									>
+										<GripVertical class="size-3 shrink-0" />
+									</span>
 								{/if}
 
 								<button
 									type="button"
-									onclick={() => handleToggleSubtask(st)}
+									draggable="false"
+									onmousedown={(e) => e.stopPropagation()}
+									onclick={(e) => {
+										e.stopPropagation();
+										handleToggleSubtask(st);
+									}}
 									class={cn(
 										'size-4 shrink-0 rounded border transition-colors flex items-center justify-center cursor-pointer',
 										st.done
@@ -507,6 +988,9 @@
 										onkeydown={(e) => {
 											if (e.key === 'Enter') handleSaveEditSubtask(st);
 											if (e.key === 'Escape') {
+												e.preventDefault();
+												e.stopPropagation();
+												e.stopImmediatePropagation();
 												editingSubtaskId = null;
 												editingSubtaskTitle = '';
 											}
@@ -544,6 +1028,8 @@
 									<Button
 										variant="ghost"
 										size="icon-xs"
+										draggable="false"
+										onmousedown={(e) => e.stopPropagation()}
 										class="size-5 rounded text-muted-foreground hover:text-foreground"
 										onclick={() => handleStartEditSubtask(st)}
 									>
@@ -552,6 +1038,8 @@
 									<Button
 										variant="ghost"
 										size="icon-xs"
+										draggable="false"
+										onmousedown={(e) => e.stopPropagation()}
 										class="size-5 rounded text-muted-foreground hover:text-destructive"
 										onclick={() => handleDeleteSubtask(st.id)}
 									>
@@ -654,112 +1142,148 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 	{/if}
 
-	<Dialog.Footer class="flex items-center justify-between gap-2 pt-2 border-t border-border/40 sm:justify-between">
-		<div class="flex items-center gap-1.5">
-			{#if task?.deleted}
-				{#if onRestore}
-					<Button
-						variant="outline"
-						size="xs"
-						onclick={handleRestore}
-						class="gap-1.5 text-xs"
-					>
-						<RotateCcw class="size-3.5" />
-						<span>Pulihkan</span>
-					</Button>
-				{/if}
-				{#if onHardDelete}
-					<Button
-						variant="destructive"
-						size="xs"
-						onclick={handleHardDelete}
-						class="gap-1.5 text-xs"
-					>
-						<Trash class="size-3.5" />
-						<span>Hapus Permanen</span>
-					</Button>
-				{/if}
+		<Dialog.Footer class="flex flex-row items-center justify-between gap-2 pt-2 border-t border-border/40 sm:justify-between">
+			{#if isEditing}
+				<Button
+					type="button"
+					variant="ghost"
+					size="xs"
+					onclick={handleCancelEdit}
+					class="h-7 px-3 text-xs cursor-pointer"
+				>
+					Batal
+				</Button>
+
+				<Button
+					type="button"
+					variant="default"
+					size="xs"
+					onclick={handleSaveEdit}
+					disabled={!editTitle.trim() || isSaving}
+					class="h-7 px-3 text-xs font-medium cursor-pointer gap-1.5"
+				>
+					{#if isSaving}
+						<span>Menyimpan...</span>
+					{:else}
+						<Check class="size-3.5" />
+						<span>Simpan</span>
+					{/if}
+				</Button>
 			{:else}
-				{#if onStartEdit}
-					<Button
-						variant="outline"
-						size="xs"
-						onclick={handleEdit}
-						class="gap-1.5 text-xs font-medium cursor-pointer"
-					>
-						<Pencil class="size-3.5" />
-						<span>Edit</span>
-					</Button>
-				{/if}
+				<div class="flex items-center gap-1.5">
+					{#if task?.deleted}
+						{#if onRestore}
+							<Button
+								variant="outline"
+								size="xs"
+								onclick={handleRestore}
+								class="h-7 gap-1.5 text-xs"
+							>
+								<RotateCcw class="size-3.5" />
+								<span>Pulihkan</span>
+							</Button>
+						{/if}
+						{#if onHardDelete}
+							<Button
+								variant="destructive"
+								size="xs"
+								onclick={handleHardDelete}
+								class="h-7 gap-1.5 text-xs"
+							>
+								<Trash class="size-3.5" />
+								<span>Hapus Permanen</span>
+							</Button>
+						{/if}
+					{:else}
+						<Button
+							variant="outline"
+							size="xs"
+							onclick={handleEdit}
+							class="h-7 gap-1.5 px-2.5 text-xs font-medium cursor-pointer"
+						>
+							<Pencil class="size-3.5" />
+							<span>Edit</span>
+						</Button>
 
-				{#if onDuplicate || onDuplicateToCategories || onCompare || onToggleDone || onDelete}
-					<DropdownMenu.Root>
-						<DropdownMenu.Trigger>
-							{#snippet child({ props })}
-								<Button
-									{...props}
-									variant="ghost"
-									size="icon-xs"
-									class="size-7 text-muted-foreground hover:text-foreground rounded-md cursor-pointer"
-									title="Opsi lainnya"
-								>
-									<Ellipsis class="size-4" />
-								</Button>
-							{/snippet}
-						</DropdownMenu.Trigger>
-						<DropdownMenu.Content align="start" class="min-w-44 p-1 rounded-lg border border-border shadow-lg">
-							{#if onToggleDone}
-								<DropdownMenu.Item onclick={handleToggleDone} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
-									{#if task?.done}
-										<Undo2 class="size-3.5" />
-										<span>Batal Selesai</span>
-									{:else}
-										<Check class="size-3.5 text-emerald-600" />
-										<span>Tandai Selesai</span>
+						{#if onDuplicate || onDuplicateToCategories || onCompare || onToggleDone || onDelete}
+							<DropdownMenu.Root>
+								<DropdownMenu.Trigger>
+									{#snippet child({ props })}
+										<Button
+											{...props}
+											variant="ghost"
+											size="icon-xs"
+											class="size-7 text-muted-foreground hover:text-foreground rounded-md cursor-pointer"
+											title="Opsi lainnya"
+										>
+											<Ellipsis class="size-4" />
+										</Button>
+									{/snippet}
+								</DropdownMenu.Trigger>
+								<DropdownMenu.Content align="start" class="min-w-44 p-1 rounded-lg border border-border shadow-lg">
+									{#if onToggleDone}
+										<DropdownMenu.Item onclick={handleToggleDone} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+											{#if task?.done}
+												<Undo2 class="size-3.5" />
+												<span>Batal Selesai</span>
+											{:else}
+												<Check class="size-3.5 text-emerald-600" />
+												<span>Tandai Selesai</span>
+											{/if}
+										</DropdownMenu.Item>
+										<DropdownMenu.Separator />
 									{/if}
-								</DropdownMenu.Item>
-								<DropdownMenu.Separator />
-							{/if}
 
-							{#if onDuplicate}
-								<DropdownMenu.Item onclick={handleDuplicate} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
-									<Copy class="size-3.5" />
-									<span>Duplikat</span>
-								</DropdownMenu.Item>
-							{/if}
+									{#if onDuplicate}
+										<DropdownMenu.Item onclick={handleDuplicate} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+											<Copy class="size-3.5" />
+											<span>Duplikat</span>
+										</DropdownMenu.Item>
+									{/if}
 
-							{#if onDuplicateToCategories}
-								<DropdownMenu.Item onclick={handleDuplicateToCategories} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
-									<Copy class="size-3.5" />
-									<span>Duplikat ke Kategori...</span>
-								</DropdownMenu.Item>
-							{/if}
+									{#if onDuplicateToCategories}
+										<DropdownMenu.Item onclick={handleDuplicateToCategories} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+											<Copy class="size-3.5" />
+											<span>Duplikat ke Kategori...</span>
+										</DropdownMenu.Item>
+									{/if}
 
-							{#if onCompare}
-								<DropdownMenu.Item onclick={handleCompare} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
-									<ArrowLeftRight class="size-3.5" />
-									<span>Bandingkan Todo...</span>
-								</DropdownMenu.Item>
-							{/if}
+									{#if onCompare}
+										<DropdownMenu.Item onclick={handleCompare} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+											<ArrowLeftRight class="size-3.5" />
+											<span>Bandingkan Todo...</span>
+										</DropdownMenu.Item>
+									{/if}
 
-							{#if onDelete}
-								<DropdownMenu.Separator />
-								<DropdownMenu.Item onclick={handleDelete} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10">
-									<Trash class="size-3.5" />
-									<span>Hapus</span>
-								</DropdownMenu.Item>
-							{/if}
-						</DropdownMenu.Content>
-					</DropdownMenu.Root>
-				{/if}
+									{#if onDelete}
+										<DropdownMenu.Separator />
+										<DropdownMenu.Item onclick={handleDelete} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10">
+											<Trash class="size-3.5" />
+											<span>Hapus</span>
+										</DropdownMenu.Item>
+									{/if}
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
+						{/if}
+					{/if}
+				</div>
+
+				<Dialog.Close>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="xs"
+							class="h-7 px-3 text-xs cursor-pointer"
+						>
+							Tutup
+						</Button>
+					{/snippet}
+				</Dialog.Close>
 			{/if}
-		</div>
-
-		<Dialog.Close class={buttonVariants({ variant: 'ghost', size: 'xs', class: 'px-3 text-xs cursor-pointer' })}>
-			Tutup
-		</Dialog.Close>
-	</Dialog.Footer>
+		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
