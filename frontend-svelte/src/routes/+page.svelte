@@ -279,16 +279,6 @@
 		}
 	}
 
-	async function handleDuplicateTaskToCategories(t: Task) {
-		// This is handled by the dialog - just trigger the dialog open
-		// The actual invocation happens in the dialog confirmation
-		try {
-			// We need to call the Rust command with the selected categories
-			// But the dialog handles this - we just need to make the command available
-		} catch (e) {
-			toast.error(String(e));
-		}
-	}
 
 	async function handleUpdateTask(id: number, text: string, catId: number, description?: string) {
 		try {
@@ -647,7 +637,6 @@
 			onAddTask={handleAddTask}
 			onUpdateTask={handleUpdateTask}
 			onDuplicateTask={handleDuplicateTask}
-			onDuplicateToCategories={handleDuplicateTaskToCategories}
 			onToggleDone={handleToggleDone}
 			onSetTaskStatus={handleSetTaskStatus}
 			onSetTaskStatusBatch={handleBatchSetTaskStatus}

@@ -14,13 +14,17 @@
 		count = 0,
 		cats = [],
 		taskName = '',
-		taskId = 0
+		taskId = 0,
+		taskIds = [],
+		onSuccess
 	}: {
 		open: boolean;
-		count: number;
+		count?: number;
 		cats: Category[];
-		taskName: string;
-		taskId: number;
+		taskName?: string;
+		taskId?: number;
+		taskIds?: number[];
+		onSuccess?: () => void;
 	} = $props();
 
 	let query = $state('');
@@ -36,6 +40,11 @@
 		}
 	});
 
+	const effectiveTaskIds = $derived(
+		taskIds && taskIds.length > 0 ? taskIds : taskId && taskId > 0 ? [taskId] : []
+	);
+	const effectiveCount = $derived(count > 0 ? count : effectiveTaskIds.length);
+
 	const filteredCats = $derived(
 		query.trim() === ''
 			? cats
@@ -45,13 +54,27 @@
 	const isAllSelected = $derived(filteredCats.length > 0 && filteredCats.every((c) => selectedCatIds.includes(c.id)));
 
 	async function handleConfirm() {
-		if (selectedCatIds.length === 0 || taskId === 0) return;
+		if (selectedCatIds.length === 0 || effectiveTaskIds.length === 0) return;
 		isLoading = true;
+		const totalCats = selectedCatIds.length;
+		const totalTasks = effectiveTaskIds.length;
 		try {
-			await invoke('duplicate_task_to_categories', { id: taskId, category_ids: selectedCatIds });
+			if (effectiveTaskIds.length === 1) {
+				await invoke('duplicate_task_to_categories', {
+					id: effectiveTaskIds[0],
+					categoryIds: selectedCatIds
+				});
+			} else {
+				await invoke('duplicate_tasks_to_categories_batch', {
+					ids: effectiveTaskIds,
+					categoryIds: selectedCatIds
+				});
+			}
 			open = false;
 			selectedCatIds = [];
-			toast.success(`Berhasil duplikat ke ${selectedCatIds.length} kategori`);
+			const taskMsg = totalTasks > 1 ? `${totalTasks} todo` : 'Todo';
+			toast.success(`${taskMsg} berhasil diduplikat ke ${totalCats} kategori`);
+			onSuccess?.();
 		} catch (e) {
 			toast.error(String(e));
 		} finally {
@@ -81,10 +104,14 @@
 		<Dialog.Header class="gap-1 text-left">
 			<Dialog.Title class="text-sm font-semibold flex items-center gap-1.5 flex-wrap break-words [overflow-wrap:anywhere]">
 				<Copy class="size-4 text-primary shrink-0" />
-				<span>Duplikat ke Kategori ({count} Todo)</span>
+				<span>Duplikat ke Kategori ({effectiveCount} Todo)</span>
 			</Dialog.Title>
 			<Dialog.Description class="text-xs break-words [overflow-wrap:anywhere]">
-				Pilih kategori tujuan untuk duplikat "<strong>{taskName}</strong>" ({selectedCatIds.length} kategori dipilih):
+				{#if effectiveCount === 1 && taskName}
+					Pilih kategori tujuan untuk duplikat "<strong>{taskName}</strong>" ({selectedCatIds.length} kategori dipilih):
+				{:else}
+					Pilih kategori tujuan untuk duplikat {effectiveCount} todo terpilih ({selectedCatIds.length} kategori dipilih):
+				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -113,15 +140,22 @@
 						<Tooltip.Content>Hapus pencarian</Tooltip.Content>
 					</Tooltip.Root>
 				{/if}
-				<button
-					type="button"
-					class="h-8 px-2.5 text-xs rounded-md border border-input bg-card hover:bg-accent/50 cursor-pointer gap-1.5"
-					onclick={() => (showAllSelected = !showAllSelected)}
-					title={showAllSelected ? 'Sembunyikan yang dipilih' : 'Tampilkan yang dipilih'}
-				>
-					<ChevronDown class="size-3.5" />
-					<span>{showAllSelected ? 'Sembunyikan' : 'Terpilih'} {selectedCatIds.length}</span>
-				</button>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<button
+								{...props}
+								type="button"
+								class="h-8 px-2.5 text-xs rounded-md border border-input bg-card hover:bg-accent/50 cursor-pointer gap-1.5 flex items-center"
+								onclick={() => (showAllSelected = !showAllSelected)}
+							>
+								<ChevronDown class="size-3.5" />
+								<span>{showAllSelected ? 'Sembunyikan' : 'Terpilih'} {selectedCatIds.length}</span>
+							</button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>{showAllSelected ? 'Sembunyikan yang dipilih' : 'Tampilkan yang dipilih'}</Tooltip.Content>
+				</Tooltip.Root>
 			</div>
 		{/if}
 
@@ -188,11 +222,11 @@
 				variant="default"
 				size="sm"
 				class="h-8 text-xs gap-1.5"
-				disabled={selectedCatIds.length === 0}
+				disabled={selectedCatIds.length === 0 || effectiveTaskIds.length === 0 || isLoading}
 				onclick={handleConfirm}
 			>
 				<Copy class="size-3" />
-				Duplikat ke {selectedCatIds.length} kategori
+				{isLoading ? 'Menduplikat...' : `Duplikat ke ${selectedCatIds.length} kategori`}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, X, Clock, ArrowLeftRight, Plus } from '@lucide/svelte';
+	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, X, Clock, ArrowLeftRight, Plus, GripVertical } from '@lucide/svelte';
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
@@ -50,11 +50,90 @@
 	let editingSubtaskId = $state<number | null>(null);
 	let editingSubtaskTitle = $state('');
 
+	/* ----- drag reorder subtasks ----- */
+	let dragSubtaskId = $state<number | null>(null);
+	let overSubtaskIdx = $state<number | null>(null);
+	let dragSubtasks = $state<Subtask[] | null>(null);
+
+	function shiftSubtask(idx: number) {
+		const cur = dragSubtasks ?? subtasks;
+		const from = cur.findIndex((s) => s.id === dragSubtaskId);
+		if (from === -1) return;
+		const next = [...cur];
+		const [m] = next.splice(from, 1);
+		next.splice(idx > from ? idx - 1 : idx, 0, m);
+		dragSubtasks = next;
+	}
+
+	function onSubtaskDragStart(e: DragEvent, st: Subtask) {
+		if (editingSubtaskId !== null || task?.deleted) return;
+		dragSubtaskId = st.id;
+		dragSubtasks = [...subtasks];
+		overSubtaskIdx = subtasks.findIndex((s) => s.id === st.id);
+		e.dataTransfer?.setData('text/plain', String(st.id));
+		if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+	}
+
+	function onSubtaskDragOver(e: DragEvent, i: number) {
+		if (dragSubtaskId === null) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		const target = e.currentTarget as HTMLElement;
+		const rect = target.getBoundingClientRect();
+		const mid = rect.top + rect.height / 2;
+		const insertIdx = e.clientY < mid ? i : i + 1;
+		if (insertIdx !== overSubtaskIdx) {
+			overSubtaskIdx = insertIdx;
+			shiftSubtask(insertIdx);
+		}
+	}
+
+	function onSubtaskListDragOver(e: DragEvent) {
+		if (dragSubtaskId === null) return;
+		e.preventDefault();
+		if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+		const items = document.querySelectorAll('[data-subtask-item]');
+		if (items.length === 0) return;
+		const last = items[items.length - 1].getBoundingClientRect();
+		if (e.clientY > last.bottom && overSubtaskIdx !== items.length) {
+			overSubtaskIdx = items.length;
+			shiftSubtask(items.length);
+		}
+	}
+
+	async function onSubtaskDrop(e: DragEvent) {
+		e.preventDefault();
+		const final = dragSubtasks;
+		dragSubtaskId = null;
+		overSubtaskIdx = null;
+		dragSubtasks = null;
+		if (!final || !task) return;
+		const currentIds = subtasks.map((s) => s.id);
+		const newIds = final.map((s) => s.id);
+		if (newIds.every((id, idx) => id === currentIds[idx])) return;
+		subtasks = final;
+		try {
+			await invoke('reorder_subtasks', { taskId: task.id, ids: newIds });
+			onSubtasksChange?.();
+		} catch (err) {
+			console.error('Gagal reorder subtasks:', err);
+		}
+	}
+
+	function onSubtaskDragEnd() {
+		dragSubtaskId = null;
+		overSubtaskIdx = null;
+		dragSubtasks = null;
+	}
+
 	const subtaskCount = $derived(subtasks.length);
 	const subtaskDoneCount = $derived(subtasks.filter((s) => s.done).length);
 	const progressPct = $derived(subtaskCount > 0 ? Math.round((subtaskDoneCount / subtaskCount) * 100) : 0);
 
 	$effect(() => {
+		dragSubtaskId = null;
+		overSubtaskIdx = null;
+		dragSubtasks = null;
 		if (task) {
 			invoke<TaskEvent[]>('list_task_events', { taskId: task.id })
 				.then((res) => {
@@ -288,10 +367,35 @@
 					></div>
 				</div>
 
-				<div class="space-y-1 max-h-44 overflow-y-auto rounded-lg border bg-muted/20 p-1.5">
-					{#each subtasks as st (st.id)}
-						<div class="group flex items-center justify-between gap-2 px-1.5 py-1 rounded hover:bg-muted/40 transition-colors min-w-0">
-							<div class="flex items-center gap-2 min-w-0 flex-1">
+				<div
+					role="list"
+					class="space-y-1 max-h-44 overflow-y-auto rounded-lg border bg-muted/20 p-1.5"
+					ondragover={onSubtaskListDragOver}
+					ondrop={onSubtaskDrop}
+				>
+					{#each dragSubtasks ?? subtasks as st, idx (st.id)}
+						{#if overSubtaskIdx === idx}
+							<div class="mx-1 h-0.5 rounded-full bg-primary"></div>
+						{/if}
+						<div
+							data-subtask-item
+							role="listitem"
+							draggable={editingSubtaskId === null && !task?.deleted}
+							ondragstart={(e) => onSubtaskDragStart(e, st)}
+							ondragover={(e) => onSubtaskDragOver(e, idx)}
+							ondrop={onSubtaskDrop}
+							ondragend={onSubtaskDragEnd}
+							class={cn(
+								'group flex items-center justify-between gap-1.5 px-1.5 py-1 rounded hover:bg-muted/40 transition-colors min-w-0 select-none',
+								editingSubtaskId === null && !task?.deleted && 'cursor-grab active:cursor-grabbing',
+								dragSubtaskId === st.id && 'opacity-40 bg-accent/40 ring-1 ring-primary/40'
+							)}
+						>
+							<div class="flex items-center gap-1.5 min-w-0 flex-1">
+								{#if !task?.deleted && editingSubtaskId === null}
+									<GripVertical class="size-3 text-muted-foreground/40 group-hover:text-muted-foreground/80 shrink-0 touch-none" />
+								{/if}
+
 								<button
 									type="button"
 									onclick={() => handleToggleSubtask(st)}
@@ -369,6 +473,9 @@
 							</div>
 						</div>
 					{/each}
+					{#if overSubtaskIdx === (dragSubtasks ?? subtasks).length}
+						<div class="mx-1 h-0.5 rounded-full bg-primary"></div>
+					{/if}
 				</div>
 			{/if}
 

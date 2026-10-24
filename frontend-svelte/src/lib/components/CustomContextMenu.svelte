@@ -1,7 +1,8 @@
 <script lang="ts">
 	import {
 		CircleCheck,
-		CircleDashedCheck,
+		CircleDot,
+		Clock,
 		Check,
 		Copy,
 		Eye,
@@ -38,6 +39,7 @@
 		onStartEdit,
 		onSetStatus,
 		onDuplicate,
+		onDuplicateToCategories,
 		onMoveCategory,
 		onCompare,
 		onDelete,
@@ -182,7 +184,7 @@
 							close();
 						}}
 					>
-						<CircleDashedCheck class="size-3.5 text-blue-500" />
+						<CircleDot class="size-3.5 text-blue-500" />
 						<span>Set ke Todo</span>
 					</button>
 				{/if}
@@ -195,7 +197,7 @@
 							close();
 						}}
 					>
-						<CircleCheck class="size-3.5 text-amber-500" />
+						<Clock class="size-3.5 text-amber-500" />
 						<span>Set ke In Progress</span>
 					</button>
 				{/if}
@@ -208,7 +210,7 @@
 							close();
 						}}
 					>
-						<Check class="size-3.5 text-emerald-500" />
+						<CircleCheck class="size-3.5 text-emerald-500" />
 						<span>Set ke Selesai</span>
 					</button>
 				{/if}

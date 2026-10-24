@@ -1293,60 +1293,78 @@ pub fn duplicate_tasks_batch(db: tauri::State<Db>, ids: Vec<i64>) -> R<()> {
 }
 
 #[tauri::command]
-        pub fn duplicate_task_to_categories(db: tauri::State<Db>, id: i64, category_ids: Vec<i64>) -> R<()> {
-            if category_ids.is_empty() {
-                return Ok(());
-            }
-            let mut c = conn(&db);
-            let tx = c.transaction().map_err(|e| e.to_string())?;
-            let t = now();
-            let task: Option<(String, String, i64, i64)> = tx
-                .query_row(
-                    "SELECT text, COALESCE(description, ''), category_id, project_id FROM tasks WHERE id=? AND deleted=0",
-                    [id],
-                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-                )
-                .optional()
-                .map_err(|e| e.to_string())?;
-            if let Some((text, desc, _orig_cat_id, proj_id)) = task {
-                let mut sub_st = tx
-                    .prepare("SELECT title, pos FROM subtasks WHERE task_id=? ORDER BY pos ASC, id ASC")
-                    .map_err(|e| e.to_string())?;
-                let subtasks: Vec<(String, i64)> = sub_st
-                    .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
-                    .map_err(|e| e.to_string())?
-                    .filter_map(|r| r.ok())
-                    .collect();
-                drop(sub_st);
+pub fn duplicate_tasks_to_categories_batch(
+    db: tauri::State<Db>,
+    ids: Vec<i64>,
+    category_ids: Vec<i64>,
+) -> R<()> {
+    if ids.is_empty() || category_ids.is_empty() {
+        return Ok(());
+    }
+    let mut c = conn(&db);
+    let tx = c.transaction().map_err(|e| e.to_string())?;
+    let t = now();
 
-                for cat_id in category_ids {
-                    let pos = top_pos(&tx, false, cat_id);
+    for id in ids {
+        let task: Option<(String, String, i64, i64)> = tx
+            .query_row(
+                "SELECT text, COALESCE(description, ''), category_id, project_id FROM tasks WHERE id=? AND deleted=0",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+
+        if let Some((text, desc, _orig_cat_id, proj_id)) = task {
+            let mut sub_st = tx
+                .prepare("SELECT title, pos FROM subtasks WHERE task_id=? ORDER BY pos ASC, id ASC")
+                .map_err(|e| e.to_string())?;
+            let subtasks: Vec<(String, i64)> = sub_st
+                .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .map_err(|e| e.to_string())?
+                .filter_map(|r| r.ok())
+                .collect();
+            drop(sub_st);
+
+            for cat_id in &category_ids {
+                let pos = top_pos(&tx, false, *cat_id);
+                tx.execute(
+                    "INSERT INTO tasks(text, description, status, done, deleted, created_at, status_updated_at, pos, category_id, project_id)
+                     VALUES(?, ?, 'todo', 0, 0, ?, ?, ?, ?, ?)",
+                    rusqlite::params![text, desc, t.clone(), t.clone(), pos, cat_id, proj_id],
+                )
+                .map_err(|e| e.to_string())?;
+                let new_task_id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO task_events(task_id, status, created_at) VALUES(?, 'todo', ?)",
+                    rusqlite::params![new_task_id, t.clone()],
+                )
+                .ok();
+
+                for (st_title, st_pos) in &subtasks {
                     tx.execute(
-                        "INSERT INTO tasks(text, description, status, done, deleted, created_at, status_updated_at, pos, category_id, project_id)
-                         VALUES(?, ?, 'todo', 0, 0, ?, ?, ?, ?, ?)",
-                        rusqlite::params![text, desc, t.clone(), t.clone(), pos, cat_id, proj_id],
-                    )
-                    .map_err(|e| e.to_string())?;
-                    let new_task_id = tx.last_insert_rowid();
-                    tx.execute(
-                        "INSERT INTO task_events(task_id, status, created_at) VALUES(?, 'todo', ?)",
-                        rusqlite::params![new_task_id, t.clone()],
+                        "INSERT INTO subtasks(task_id, title, done, pos, created_at) VALUES(?, ?, 0, ?, ?)",
+                        rusqlite::params![new_task_id, st_title, st_pos, t.clone()],
                     )
                     .ok();
-
-                    for (st_title, st_pos) in &subtasks {
-                        tx.execute(
-                            "INSERT INTO subtasks(task_id, title, done, pos, created_at) VALUES(?, ?, 0, ?, ?)",
-                            rusqlite::params![new_task_id, st_title, st_pos, t.clone()],
-                        )
-                        .ok();
-                    }
                 }
             }
-            tx.commit().map_err(|e| e.to_string())?;
-            save(&c, &db.path);
-            Ok(())
         }
+    }
+
+    tx.commit().map_err(|e| e.to_string())?;
+    save(&c, &db.path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn duplicate_task_to_categories(
+    db: tauri::State<Db>,
+    id: i64,
+    category_ids: Vec<i64>,
+) -> R<()> {
+    duplicate_tasks_to_categories_batch(db, vec![id], category_ids)
+}
 
         #[tauri::command]
         pub fn soft_delete(db: tauri::State<Db>, id: i64) -> R<()> {

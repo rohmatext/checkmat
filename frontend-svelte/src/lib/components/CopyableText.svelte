@@ -2,6 +2,7 @@
 	import { Copy, Check } from '@lucide/svelte';
 	import { toast } from 'svelte-sonner';
 	import { cn } from '#lib/utils';
+	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 
 	let { text = '' }: { text: string } = $props();
 
@@ -70,35 +71,42 @@
 			{seg.content}
 		{:else}
 			{@const isCopied = copiedIndexes[idx]}
-			<!-- svelte-ignore a11y_interactive_supports_focus -->
-			<span
-				role="button"
-				tabindex="0"
-				onclick={(e) => handleCopy(seg.content, idx, e)}
-				ondblclick={(e) => {
-					e.stopPropagation();
-					handleCopy(seg.content, idx, e);
-				}}
-				onkeydown={(e) => {
-					if (e.key === 'Enter' || e.key === ' ') {
-						handleCopy(seg.content, idx, e);
-					}
-				}}
-				class={cn(
-					'inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded font-mono text-[11px] leading-tight select-all transition-all border align-baseline cursor-pointer group/copy',
-					isCopied
-						? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-semibold'
-						: 'bg-muted/80 hover:bg-muted border-border/80 text-foreground hover:border-primary/50 shadow-2xs active:scale-95'
-				)}
-				title="Klik untuk salin ke clipboard"
-			>
-				{#if isCopied}
-					<Check class="size-3 text-emerald-500 shrink-0" />
-				{:else}
-					<Copy class="size-3 text-muted-foreground/80 group-hover/copy:text-primary shrink-0 transition-colors" />
-				{/if}
-				<span class="break-all">{seg.content}</span>
-			</span>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<!-- svelte-ignore a11y_interactive_supports_focus -->
+						<span
+							{...props}
+							role="button"
+							tabindex="0"
+							onclick={(e) => handleCopy(seg.content, idx, e)}
+							ondblclick={(e) => {
+								e.stopPropagation();
+								handleCopy(seg.content, idx, e);
+							}}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
+									handleCopy(seg.content, idx, e);
+								}
+							}}
+							class={cn(
+								'inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded font-mono text-[11px] leading-tight select-all transition-all border align-baseline cursor-pointer group/copy',
+								isCopied
+									? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-semibold'
+									: 'bg-muted/80 hover:bg-muted border-border/80 text-foreground hover:border-primary/50 shadow-2xs active:scale-95'
+							)}
+						>
+							{#if isCopied}
+								<Check class="size-3 text-emerald-500 shrink-0" />
+							{:else}
+								<Copy class="size-3 text-muted-foreground/80 group-hover/copy:text-primary shrink-0 transition-colors" />
+							{/if}
+							<span class="break-all">{seg.content}</span>
+						</span>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="top">Klik untuk salin ke clipboard</Tooltip.Content>
+			</Tooltip.Root>
 		{/if}
 	{/each}
 {/if}

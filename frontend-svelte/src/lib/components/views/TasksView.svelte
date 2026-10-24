@@ -34,7 +34,8 @@
 		CircleDashedCheck,
 		CircleDot,
 		ArrowLeftRight,
-		ShieldCheck
+		ShieldCheck,
+		Search
 	} from '@lucide/svelte';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import {
@@ -50,6 +51,7 @@
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '#lib/components/ui/alert-dialog/index.js';
+	import { mergeProps } from 'bits-ui';
 	import CategorySelect from '#lib/components/CategorySelect.svelte';
 	import TaskDetailDialog from '#lib/components/dialogs/TaskDetailDialog.svelte';
 	import ProjectDetailDialog from '#lib/components/dialogs/ProjectDetailDialog.svelte';
@@ -84,7 +86,6 @@
 		onAddTask,
 		onUpdateTask,
 		onDuplicateTask,
-		onDuplicateToCategories,
 		onToggleDone,
 		onSetTaskStatus,
 		onSetTaskStatusBatch,
@@ -127,7 +128,6 @@
 		onAddTask: (text: string, catId: number, description?: string) => Promise<void>;
 		onUpdateTask: (id: number, text: string, catId: number, description?: string) => Promise<void>;
 		onDuplicateTask?: (t: Task) => void;
-		onDuplicateTaskToCategories?: (t: Task) => void;
 		onToggleDone: (t: Task) => void;
 		onSetTaskStatus?: (id: number, status: TaskStatus) => Promise<void>;
 		onSetTaskStatusBatch?: (ids: number[], status: TaskStatus, onSuccess?: () => void) => Promise<void>;
@@ -152,6 +152,24 @@
 	let newText = $state('');
 	let showDesc = $state(false);
 	let newDesc = $state('');
+	let searchQuery = $state('');
+	let searchInput = $state<HTMLInputElement | null>(null);
+	const q = $derived(searchQuery.trim().toLowerCase());
+	const matchesSearch = (t: Task) => {
+		if (!q) return true;
+		return (
+			t.text.toLowerCase().includes(q) ||
+			(t.description ? t.description.toLowerCase().includes(q) : false)
+		);
+	};
+
+	function handleWindowKeyDown(e: KeyboardEvent) {
+		if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+			e.preventDefault();
+			searchInput?.focus();
+			searchInput?.select();
+		}
+	}
 	let newTextInput: HTMLTextAreaElement | null = $state(null);
 	let descInput: HTMLTextAreaElement | null = $state(null);
 	let editId = $state<number | null>(null);
@@ -292,6 +310,7 @@
 	let batchCategoryDialogOpen = $state(false);
 	let batchDuplicateDialogOpen = $state(false);
 	let duplicateToCategoriesTask = $state<Task | null>(null);
+	let duplicateToCategoriesIds = $state<number[]>([]);
 
 	// Compare tasks state
 	let compareOpen = $state(false);
@@ -321,7 +340,7 @@
 					: t.deleted;
 
 	const count = (k: Tab) =>
-		tasks.filter((t) => inActiveCats(t) && inTab(t, k)).length;
+		tasks.filter((t) => inActiveCats(t) && inTab(t, k) && matchesSearch(t)).length;
 
 	function cycleTaskStatus(t: Task) {
 		const current = t.done || t.status === 'done' ? 'done' : t.status === 'inprogress' ? 'inprogress' : 'todo';
@@ -356,7 +375,7 @@
 	}
 
 	let rows = $derived.by(() => {
-		const filtered = tasks.filter((t) => inActiveCats(t) && inTab(t, tab));
+		const filtered = tasks.filter((t) => inActiveCats(t) && inTab(t, tab) && matchesSearch(t));
 		if (!isAllCats) {
 			return filtered;
 		}
@@ -509,6 +528,19 @@
 				selectedIds = [];
 			});
 		}
+	}
+
+	function openDuplicateToCategories(t: Task) {
+		duplicateToCategoriesTask = t;
+		duplicateToCategoriesIds = [t.id];
+		batchDuplicateDialogOpen = true;
+	}
+
+	function handleBatchDuplicateToCategoriesAction() {
+		if (selectedIds.length === 0) return;
+		duplicateToCategoriesTask = selectedIds.length === 1 ? (tasks.find((t) => t.id === selectedIds[0]) ?? null) : null;
+		duplicateToCategoriesIds = [...selectedIds];
+		batchDuplicateDialogOpen = true;
 	}
 
 	function handleBatchSetStatusAction(status: TaskStatus) {
@@ -701,6 +733,8 @@
 	];
 </script>
 
+<svelte:window onkeydown={handleWindowKeyDown} />
+
 <div class="flex h-full flex-col">
 	<!-- project title and navigation + app utilities -->
 	<div class="flex items-center justify-between gap-1 px-2 pt-2">
@@ -799,90 +833,80 @@
 		</div>
 	</div>
 
-	<!-- filter kategori -->
+	<!-- search todo & filter kategori -->
 	<div class="flex flex-col gap-1 px-2 pt-2">
 		<div class="flex items-center gap-1.5">
+			<!-- Search Input Group -->
 			<div class="min-w-0 flex-1">
-				<CategorySelect
-					{cats}
-					multiple={true}
-					values={activeCats}
-					allowAll={true}
-					allLabel="Semua kategori"
-					{tasks}
-					onToggle={toggleCat}
-					onClear={() => handlePickCat('all')}
-					{onOpenAddCategory}
-				/>
+				<InputGroup class="h-8 shadow-2xs">
+					<InputGroupAddon align="inline-start" class="pl-2.5 pr-1 text-muted-foreground/70">
+						<Search class="size-3.5" />
+					</InputGroupAddon>
+					<InputGroupInput
+						bind:ref={searchInput}
+						bind:value={searchQuery}
+						placeholder="Cari todo... (Ctrl+F)"
+						class="text-xs h-full"
+						onkeydown={(e: KeyboardEvent) => {
+							if (e.key === 'Escape') {
+								searchQuery = '';
+								(e.currentTarget as HTMLInputElement).blur();
+							}
+						}}
+					/>
+					{#if searchQuery}
+						<InputGroupAddon align="inline-end" class="pr-1.5 pl-0">
+							<button
+								type="button"
+								onclick={() => {
+									searchQuery = '';
+									searchInput?.focus();
+								}}
+								class="size-5 rounded hover:bg-muted/70 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer"
+								title="Bersihkan pencarian (Esc)"
+							>
+								<X class="size-3" />
+							</button>
+						</InputGroupAddon>
+					{/if}
+				</InputGroup>
 			</div>
 
-		<div class="flex items-center gap-1 shrink-0">
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					{#snippet child({ props })}
-						<Button {...props} variant="outline" size="icon-sm" onclick={onOpenCategoriesView}>
-							<Tags />
-						</Button>
-					{/snippet}
-				</Tooltip.Trigger>
-				<Tooltip.Content>Kelola kategori</Tooltip.Content>
-			</Tooltip.Root>
-			{#if activeCats.length > 0}
-				<Tooltip.Root>
-					<Tooltip.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant="outline"
-								size="icon-sm"
-								onclick={() => handlePickCat('all')}
-							>
-								<X />
-							</Button>
-						{/snippet}
-					</Tooltip.Trigger>
-					<Tooltip.Content>Bersihkan filter</Tooltip.Content>
-				</Tooltip.Root>
-			{/if}
-			{#if singleCat}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button {...props} variant="outline" size="icon-sm">
-								<Ellipsis />
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end" class="min-w-36 w-36 rounded-lg p-1 shadow-lg border border-border">
-						<DropdownMenu.Item onclick={onOpenRenameCategory} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
-							<Pencil class="size-3.5" /> Edit Kategori
-						</DropdownMenu.Item>
-						<DropdownMenu.Separator />
-						<DropdownMenu.Item
-							onclick={onDeleteCategory}
-							class="py-1.5 px-2 text-xs rounded-md gap-2 text-destructive focus:bg-destructive/10 focus:text-destructive cursor-pointer"
-						>
-							<Trash class="size-3.5" /> Hapus Kategori
-						</DropdownMenu.Item>
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-			{/if}
-		</div>
+			<!-- Compact Filter Kategori -->
+			<CategorySelect
+				{cats}
+				multiple={true}
+				values={activeCats}
+				allowAll={true}
+				allLabel="Semua kategori"
+				{tasks}
+				variant="filter"
+				onToggle={toggleCat}
+				onClear={() => handlePickCat('all')}
+				{onOpenAddCategory}
+			/>
 		</div>
 
 		{#if activeCats.length > 0}
 			<div class="flex flex-wrap items-center gap-1">
 				{#each cats.filter((c) => activeCats.includes(c.id)) as c (c.id)}
-					<button
-						type="button"
-						onclick={() => toggleCat(c.id)}
-						title="Hapus filter {c.name}"
-						class="group flex max-w-40 items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent cursor-pointer"
-					>
-						<span class={cn('size-1.5 shrink-0 rounded-full', getSolidCls(c.color))}></span>
-						<span class="truncate">{c.name}</span>
-						<X class="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
-					</button>
+					<Tooltip.Root>
+						<Tooltip.Trigger>
+							{#snippet child({ props })}
+								<button
+									{...props}
+									type="button"
+									onclick={() => toggleCat(c.id)}
+									class="group flex max-w-40 items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-[10px] font-medium text-foreground transition-colors hover:bg-accent cursor-pointer"
+								>
+									<span class={cn('size-1.5 shrink-0 rounded-full', getSolidCls(c.color))}></span>
+									<span class="truncate">{c.name}</span>
+									<X class="size-3 shrink-0 opacity-60 group-hover:opacity-100" />
+								</button>
+							{/snippet}
+						</Tooltip.Trigger>
+						<Tooltip.Content>Hapus filter {c.name}</Tooltip.Content>
+					</Tooltip.Root>
 				{/each}
 				{#if activeCats.length > 1}
 					<button
@@ -1069,6 +1093,13 @@
 										<Copy class="size-3.5 text-muted-foreground" />
 										<span>Duplikat ({selectedIds.length})</span>
 									</DropdownMenu.Item>
+									<DropdownMenu.Item
+										onclick={handleBatchDuplicateToCategoriesAction}
+										class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
+									>
+										<Copy class="size-3.5 text-primary" />
+										<span>Duplikat ke Kategori... ({selectedIds.length})</span>
+									</DropdownMenu.Item>
 									{#if selectedIds.length === 2}
 										<DropdownMenu.Item
 											onclick={handleBatchCompareAction}
@@ -1188,18 +1219,23 @@
 		{/if}
 
 		{#if rows.length === 0}
-			<p class="p-3 text-center text-muted-foreground">
-				{activeCats.length === 0
-					? 'Belum ada todo'
-					: curCat
-						? `Belum ada todo di "${curCat.name}"`
-						: 'Belum ada kategori'}
+			<p class="p-3 text-center text-muted-foreground text-xs">
+				{q
+					? `Tidak ada todo yang cocok dengan "${searchQuery.trim()}"`
+					: activeCats.length === 0
+						? 'Belum ada todo'
+						: curCat
+							? `Belum ada todo di "${curCat.name}"`
+							: 'Belum ada kategori'}
 			</p>
 		{/if}
 
 		{#each view as t, i (t.id)}
 			{@const isSelected = selectedIds.includes(t.id)}
 			{@const isExpanded = expandedIds.includes(t.id)}
+			{@const isDone = t.done || t.status === 'done'}
+			{@const isInProgress = !t.done && t.status === 'inprogress'}
+			{@const isTodo = !t.done && (!t.status || t.status === 'todo')}
 			{#if singleCat && overIdx === i}
 				<div class="mx-1 mb-1 h-0.5 rounded-full bg-primary"></div>
 			{/if}
@@ -1250,8 +1286,110 @@
 						</Tooltip.Trigger>
 						<Tooltip.Content>{isSelected ? 'Batal tandai' : 'Tandai todo ini'}</Tooltip.Content>
 					</Tooltip.Root>
-				{:else if singleCat && tab !== 'deleted' && editId !== t.id}
-					<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50 mt-1" />
+				{:else}
+					{#if singleCat && tab !== 'deleted' && editId !== t.id}
+						<GripVertical class="size-3.5 shrink-0 text-muted-foreground/50 mt-1" />
+					{/if}
+
+					{#if editId !== t.id}
+						{#if tab === 'deleted'}
+							<!-- Pulihkan button di kiri -->
+							<Tooltip.Root>
+								<Tooltip.Trigger>
+									{#snippet child({ props })}
+										<button
+											{...props}
+											type="button"
+											onclick={(e) => {
+												e.stopPropagation();
+												onRestore(t);
+											}}
+											class="size-4 shrink-0 mt-0.5 rounded hover:bg-primary/10 text-muted-foreground/70 hover:text-primary transition-colors inline-flex items-center justify-center cursor-pointer"
+										>
+											<RotateCcw class="size-3.5" />
+										</button>
+									{/snippet}
+								</Tooltip.Trigger>
+								<Tooltip.Content>Pulihkan todo</Tooltip.Content>
+							</Tooltip.Root>
+						{:else}
+							<!-- Quick Status Picker di kiri ala GitHub issue -->
+							<DropdownMenu.Root>
+								<Tooltip.Root>
+									<DropdownMenu.Trigger>
+										{#snippet child({ props: dropdownProps })}
+											<Tooltip.Trigger>
+												{#snippet child({ props: tooltipProps })}
+													<button
+														{...mergeProps(dropdownProps, tooltipProps, {
+															onclick: (e: MouseEvent) => e.stopPropagation()
+														})}
+														type="button"
+														class="size-4 shrink-0 mt-0.5 rounded hover:bg-muted/70 transition-colors inline-flex items-center justify-center cursor-pointer"
+													>
+														{#if isDone}
+															<CircleCheck class="size-3.5 text-emerald-600 dark:text-emerald-400" />
+														{:else if isInProgress}
+															<Clock class="size-3.5 text-amber-500 dark:text-amber-400" />
+														{:else}
+															<CircleDot class="size-3.5 text-blue-500 dark:text-blue-400" />
+														{/if}
+													</button>
+												{/snippet}
+											</Tooltip.Trigger>
+										{/snippet}
+									</DropdownMenu.Trigger>
+									<Tooltip.Content side="top">
+										{isDone ? 'Selesai (Klik untuk ubah)' : isInProgress ? 'In Progress (Klik untuk ubah)' : 'Todo (Klik untuk ubah)'}
+									</Tooltip.Content>
+								</Tooltip.Root>
+								<DropdownMenu.Content align="start" class="w-38 rounded-xl p-1 shadow-lg border border-border">
+									<div class="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+										Ubah Status
+									</div>
+									<DropdownMenu.Item
+										onclick={() => setStatusDirect(t, 'todo')}
+										class={cn(
+											'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer flex items-center',
+											isTodo ? 'font-semibold text-blue-600 dark:text-blue-400 bg-blue-500/10' : 'text-foreground'
+										)}
+									>
+										<CircleDot class="size-3.5 text-blue-500" />
+										<span class="flex-1">Todo</span>
+										{#if isTodo}
+											<Check class="size-3.5 text-blue-600 dark:text-blue-400 ml-auto" />
+										{/if}
+									</DropdownMenu.Item>
+									<DropdownMenu.Item
+										onclick={() => setStatusDirect(t, 'inprogress')}
+										class={cn(
+											'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer flex items-center',
+											isInProgress ? 'font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10' : 'text-foreground'
+										)}
+									>
+										<Clock class="size-3.5 text-amber-500" />
+										<span class="flex-1">In Progress</span>
+										{#if isInProgress}
+											<Check class="size-3.5 text-amber-600 dark:text-amber-400 ml-auto" />
+										{/if}
+									</DropdownMenu.Item>
+									<DropdownMenu.Item
+										onclick={() => setStatusDirect(t, 'done')}
+										class={cn(
+											'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer flex items-center',
+											isDone ? 'font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10' : 'text-foreground'
+										)}
+									>
+										<CircleCheck class="size-3.5 text-emerald-500" />
+										<span class="flex-1">Selesai</span>
+										{#if isDone}
+											<Check class="size-3.5 text-emerald-600 dark:text-emerald-400 ml-auto" />
+										{/if}
+									</DropdownMenu.Item>
+								</DropdownMenu.Content>
+							</DropdownMenu.Root>
+						{/if}
+					{/if}
 				{/if}
 
 				{#if editId === t.id}
@@ -1547,17 +1685,6 @@
 					{#if !selectMode}
 						<div class="flex items-center gap-1 shrink-0 mt-0.5">
 							{#if tab === 'deleted'}
-								<Tooltip.Root>
-									<Tooltip.Trigger>
-										{#snippet child({ props })}
-											<Button {...props} variant="outline" size="icon-xs" class="rounded-md" onclick={() => onRestore(t)}>
-												<RotateCcw class="size-3.5" />
-											</Button>
-										{/snippet}
-									</Tooltip.Trigger>
-									<Tooltip.Content>Pulihkan</Tooltip.Content>
-								</Tooltip.Root>
-
 								<DropdownMenu.Root>
 									<DropdownMenu.Trigger>
 										{#snippet child({ props })}
@@ -1573,6 +1700,12 @@
 										>
 											<Eye class="size-3.5" /> Lihat Detail
 										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											onclick={() => onRestore(t)}
+											class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-primary"
+										>
+											<RotateCcw class="size-3.5" /> Pulihkan
+										</DropdownMenu.Item>
 										<DropdownMenu.Separator />
 										<DropdownMenu.Item
 											onclick={() => onHardDelete(t)}
@@ -1583,64 +1716,6 @@
 									</DropdownMenu.Content>
 								</DropdownMenu.Root>
 							{:else}
-								{@const isDone = t.done || t.status === 'done'}
-								{@const isInProgress = !t.done && t.status === 'inprogress'}
-								{@const isTodo = !t.done && (!t.status || t.status === 'todo')}
-
-								<!-- Status Cycle Button -->
-								<Tooltip.Root>
-									<Tooltip.Trigger>
-										{#snippet child({ props })}
-											{#if isDone}
-												<Button
-													{...props}
-													variant="ghost"
-													size="icon-xs"
-													class="rounded-md text-muted-foreground hover:text-foreground"
-													onclick={(e) => e.stopPropagation()}
-													ondblclick={(e) => {
-														e.stopPropagation();
-														cycleTaskStatus(t);
-													}}
-												>
-													<Undo2 class="size-3.5" />
-												</Button>
-											{:else if isInProgress}
-												<Button
-													{...props}
-													variant="outline"
-													size="icon-xs"
-													class="rounded-md border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 hover:border-amber-400 hover:text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400 dark:hover:bg-amber-900/60"
-													onclick={(e) => e.stopPropagation()}
-													ondblclick={(e) => {
-														e.stopPropagation();
-														cycleTaskStatus(t);
-													}}
-												>
-													<CircleCheck class="size-3.5" />
-												</Button>
-											{:else}
-												<Button
-													{...props}
-													variant="outline"
-													size="icon-xs"
-													class="rounded-md border-blue-300 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:border-blue-400 hover:text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-400 dark:hover:bg-blue-900/60"
-													onclick={(e) => e.stopPropagation()}
-													ondblclick={(e) => {
-														e.stopPropagation();
-														cycleTaskStatus(t);
-													}}
-												>
-													<CircleDashedCheck class="size-3.5" />
-												</Button>
-											{/if}
-										{/snippet}
-									</Tooltip.Trigger>
-									<Tooltip.Content>
-										{isDone ? 'Klik 2x: Kembalikan ke Todo' : isInProgress ? 'Klik 2x: Tandai Selesai' : 'Klik 2x: Mulai In Progress'}
-									</Tooltip.Content>
-								</Tooltip.Root>
-
 								<!-- Dropdown Menu -->
 								<DropdownMenu.Root>
 									<DropdownMenu.Trigger>
@@ -1672,7 +1747,7 @@
 												onclick={() => setStatusDirect(t, 'todo')}
 												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-blue-600 dark:text-blue-400"
 											>
-												<Circle class="size-3.5" /> Set ke Todo
+												<CircleDot class="size-3.5" /> Set ke Todo
 											</DropdownMenu.Item>
 										{/if}
 										{#if !isInProgress}
@@ -1688,7 +1763,7 @@
 												onclick={() => setStatusDirect(t, 'done')}
 												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-emerald-600 dark:text-emerald-400"
 											>
-												<Check class="size-3.5" /> Set ke Selesai
+												<CircleCheck class="size-3.5" /> Set ke Selesai
 											</DropdownMenu.Item>
 										{/if}
 
@@ -1703,10 +1778,10 @@
 										{/if}
 										{#if onDuplicateTask}
 											<DropdownMenu.Item
-												onclick={() => onDuplicateToCategories?.(t)}
+												onclick={() => openDuplicateToCategories(t)}
 												class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer"
 											>
-												<Copy class="size-3.5" /> Duplikat ke Kategori
+												<Copy class="size-3.5" /> Duplikat ke Kategori...
 											</DropdownMenu.Item>
 										{/if}
 										<DropdownMenu.Item
@@ -1874,6 +1949,7 @@
 		bind:task={detailTask}
 		{cats}
 		onDuplicate={onDuplicateTask}
+		onDuplicateToCategories={(t) => openDuplicateToCategories(t)}
 		onCompare={(t) => openCompare(t)}
 		onToggleDone={onToggleDone}
 		onSetStatus={onSetTaskStatus}
@@ -1911,10 +1987,17 @@
 
 	<BatchDuplicateToCategoriesDialog
 		bind:open={batchDuplicateDialogOpen}
-		count={1}
+		count={duplicateToCategoriesIds.length}
 		{cats}
-		taskName={duplicateToCategoriesTask?.text ?? ''}
-		taskId={duplicateToCategoriesTask?.id ?? 0}
+		taskName={duplicateToCategoriesTask?.text ?? (duplicateToCategoriesIds.length > 1 ? `${duplicateToCategoriesIds.length} todo terpilih` : '')}
+		taskId={duplicateToCategoriesTask?.id ?? (duplicateToCategoriesIds[0] ?? 0)}
+		taskIds={duplicateToCategoriesIds}
+		onSuccess={() => {
+			onRefreshTasks?.();
+			if (selectedIds.length > 0) {
+				selectedIds = [];
+			}
+		}}
 	/>
 
 	<CustomContextMenu
@@ -1929,10 +2012,7 @@
 		onStartEdit={(t) => startEdit(t)}
 		onSetStatus={(id, st) => onSetTaskStatus?.(id, st)}
 		onDuplicate={onDuplicateTask}
-		onDuplicateToCategories={(t) => {
-			duplicateToCategoriesTask = t;
-			batchDuplicateDialogOpen = true;
-		}}
+		onDuplicateToCategories={(t) => openDuplicateToCategories(t)}
 		onMoveCategory={onMoveTaskCategory}
 		onCompare={(t) => openCompare(t)}
 		onDelete={onSoftDelete}

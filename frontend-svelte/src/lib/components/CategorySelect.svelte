@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Search, Check, ChevronsUpDown, Plus, X } from '@lucide/svelte';
+	import { Search, Check, ChevronsUpDown, Plus, X, Funnel } from '@lucide/svelte';
 	import * as Popover from '#lib/components/ui/popover/index.js';
 	import { Button } from '#lib/components/ui/button/index.js';
 	import { Input } from '#lib/components/ui/input/index.js';
@@ -18,6 +18,7 @@
 		values = [],
 		class: className = '',
 		triggerClass = '',
+		variant = 'default',
 		onSelect,
 		onToggle,
 		onClear,
@@ -33,6 +34,7 @@
 		values?: number[];
 		class?: string;
 		triggerClass?: string;
+		variant?: 'default' | 'filter';
 		onSelect?: (val: number | null) => void;
 		onToggle?: (id: number) => void;
 		onClear?: () => void;
@@ -88,43 +90,65 @@
 <Popover.Root bind:open>
 	<Popover.Trigger class={className}>
 		{#snippet child({ props })}
-			<button
-				type="button"
-				bind:this={triggerEl}
-				{...props}
-				title={multiple
-					? values.length === 0
-						? allLabel
-						: `${values.length} kategori dipilih`
-					: (selectedCat?.name ?? (value === null && allowAll ? allLabel : placeholder))}
-				class={cn(
-					'flex h-8 w-full items-center justify-between gap-1.5 rounded-md border border-input bg-card px-2.5 text-xs font-semibold shadow-xs transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer',
-					triggerClass
-				)}
-			>
-				<span class="flex min-w-0 items-center gap-2 truncate">
-					{#if multiple}
-						{#if selectedCats.length === 0}
+			{#if variant === 'filter'}
+				<button
+					type="button"
+					bind:this={triggerEl}
+					{...props}
+					title={values.length === 0 ? 'Filter Kategori' : `${values.length} kategori dipilih`}
+					class={cn(
+						'inline-flex h-8 items-center gap-1.5 rounded-4xl border border-input bg-input/30 hover:bg-input/50 px-3 text-xs font-medium shadow-2xs transition-colors focus-visible:outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer shrink-0',
+						triggerClass
+					)}
+				>
+					<Funnel class="size-3.5 shrink-0 opacity-70" />
+					<span>Kategori</span>
+					{#if values.length > 0}
+						<span class="flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground leading-none">
+							{values.length}
+						</span>
+					{/if}
+					<ChevronsUpDown class="size-3 shrink-0 opacity-50 -mr-0.5" />
+				</button>
+			{:else}
+				<button
+					type="button"
+					bind:this={triggerEl}
+					{...props}
+					title={multiple
+						? values.length === 0
+							? allLabel
+							: `${values.length} kategori dipilih`
+						: (selectedCat?.name ?? (value === null && allowAll ? allLabel : placeholder))}
+					class={cn(
+						'flex h-8 w-full items-center justify-between gap-1.5 rounded-4xl border border-input bg-input/30 hover:bg-input/50 px-3 text-xs font-semibold shadow-2xs transition-colors focus-visible:outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer',
+						triggerClass
+					)}
+				>
+					<span class="flex min-w-0 items-center gap-2 truncate">
+						{#if multiple}
+							{#if selectedCats.length === 0}
+								<span class="size-2 shrink-0 rounded-full bg-primary/60"></span>
+								<span class="truncate">{allLabel}</span>
+							{:else}
+								<span class="size-2 shrink-0 rounded-full bg-primary"></span>
+								<span class="truncate">{selectedCats.length === 1
+									? selectedCats[0].name
+									: `${selectedCats.length} kategori dipilih`}</span>
+							{/if}
+						{:else if value === null && allowAll}
 							<span class="size-2 shrink-0 rounded-full bg-primary/60"></span>
 							<span class="truncate">{allLabel}</span>
+						{:else if selectedCat}
+							<span class={cn('size-2 shrink-0 rounded-full', getSolidCls(selectedCat.color))}></span>
+							<span class="truncate">{selectedCat.name}</span>
 						{:else}
-							<span class="size-2 shrink-0 rounded-full bg-primary"></span>
-							<span class="truncate">{selectedCats.length === 1
-								? selectedCats[0].name
-								: `${selectedCats.length} kategori dipilih`}</span>
+							<span class="truncate text-muted-foreground">{placeholder}</span>
 						{/if}
-					{:else if value === null && allowAll}
-						<span class="size-2 shrink-0 rounded-full bg-primary/60"></span>
-						<span class="truncate">{allLabel}</span>
-					{:else if selectedCat}
-						<span class={cn('size-2 shrink-0 rounded-full', getSolidCls(selectedCat.color))}></span>
-						<span class="truncate">{selectedCat.name}</span>
-					{:else}
-						<span class="truncate text-muted-foreground">{placeholder}</span>
-					{/if}
-				</span>
-				<ChevronsUpDown class="size-3.5 shrink-0 opacity-50" />
-			</button>
+					</span>
+					<ChevronsUpDown class="size-3.5 shrink-0 opacity-50" />
+				</button>
+			{/if}
 		{/snippet}
 	</Popover.Trigger>
 	<Popover.Content
@@ -132,7 +156,7 @@
 		style={popWidth
 			? `width:${Math.max(popWidth, 240)}px;min-width:14rem;max-width:calc(100vw - 1rem);`
 			: 'min-width:14rem;max-width:calc(100vw - 1rem);'}
-		align="start"
+		align={variant === 'filter' ? 'end' : 'start'}
 	>
 		<!-- Search Input -->
 		<div class="relative flex items-center">
