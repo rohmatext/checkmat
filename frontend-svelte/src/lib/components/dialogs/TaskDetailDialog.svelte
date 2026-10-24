@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, X, Clock, ArrowLeftRight, Plus, GripVertical } from '@lucide/svelte';
+	import { Copy, Pencil, Check, Undo2, RotateCcw, Trash, Clock, ArrowLeftRight, Plus, GripVertical, ChevronDown, Ellipsis } from '@lucide/svelte';
 	import { Button, buttonVariants } from '#lib/components/ui/button/index.js';
 	import { Badge } from '#lib/components/ui/badge/index.js';
 	import * as Dialog from '#lib/components/ui/dialog/index.js';
+	import * as DropdownMenu from '#lib/components/ui/dropdown-menu/index.js';
 	import * as Tooltip from '#lib/components/ui/tooltip/index.js';
 	import {
 		InputGroup,
@@ -49,6 +50,7 @@
 	let newSubtaskTitle = $state('');
 	let editingSubtaskId = $state<number | null>(null);
 	let editingSubtaskTitle = $state('');
+	let isHistoryOpen = $state(false);
 
 	/* ----- drag reorder subtasks ----- */
 	let dragSubtaskId = $state<number | null>(null);
@@ -134,6 +136,7 @@
 		dragSubtaskId = null;
 		overSubtaskIdx = null;
 		dragSubtasks = null;
+		isHistoryOpen = false;
 		if (task) {
 			invoke<TaskEvent[]>('list_task_events', { taskId: task.id })
 				.then((res) => {
@@ -286,6 +289,20 @@
 		task = null;
 		onStartEdit(cur);
 	}
+
+	async function handleSetStatus(newStatus: TaskStatus) {
+		if (!task || !onSetStatus || task.deleted) return;
+		const taskId = task.id;
+		task.status = newStatus;
+		task.done = newStatus === 'done';
+		task.status_updated_at = new Date().toISOString();
+		onSetStatus(taskId, newStatus);
+		try {
+			events = (await invoke<TaskEvent[]>('list_task_events', { taskId })) || [];
+		} catch {
+			// ignore
+		}
+	}
 </script>
 
 <Dialog.Root open={task !== null} onOpenChange={(open) => { if (!open) task = null; }}>
@@ -304,6 +321,77 @@
 					<Badge variant="outline" class="border-destructive/30 bg-destructive/10 text-destructive text-[10px]">
 						Dihapus
 					</Badge>
+				{:else if onSetStatus && task}
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<button
+									type="button"
+									{...props}
+									class={cn(
+										'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium border transition-all cursor-pointer shadow-xs select-none',
+										task.done || task.status === 'done'
+											? 'border-emerald-300/80 bg-emerald-50 text-emerald-700 hover:bg-emerald-100/80 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
+											: task.status === 'inprogress'
+												? 'border-amber-300/80 bg-amber-50 text-amber-700 hover:bg-amber-100/80 dark:border-amber-800 dark:bg-amber-950/60 dark:text-amber-400 dark:hover:bg-amber-900/50'
+												: 'border-blue-300/80 bg-blue-50 text-blue-700 hover:bg-blue-100/80 dark:border-blue-800 dark:bg-blue-950/60 dark:text-blue-400 dark:hover:bg-blue-900/50'
+									)}
+									title="Ubah status"
+								>
+									<span
+										class={cn(
+											'size-1.5 rounded-full shrink-0',
+											task.done || task.status === 'done'
+												? 'bg-emerald-500'
+												: task.status === 'inprogress'
+													? 'bg-amber-500'
+													: 'bg-blue-500'
+										)}
+									></span>
+									<span>
+										{task.done || task.status === 'done'
+											? 'Selesai'
+											: task.status === 'inprogress'
+												? 'In Progress'
+												: 'Todo'}
+									</span>
+									<ChevronDown class="size-2.5 opacity-60 ml-0.5" />
+								</button>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="start" class="min-w-36 p-1 rounded-lg border border-border shadow-lg">
+							<DropdownMenu.Item
+								onclick={() => handleSetStatus('todo')}
+								class={cn(
+									'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer',
+									(!task.done && (!task.status || task.status === 'todo')) && 'bg-accent font-medium'
+								)}
+							>
+								<span class="size-2 rounded-full bg-blue-500 shrink-0"></span>
+								<span>Todo</span>
+							</DropdownMenu.Item>
+							<DropdownMenu.Item
+								onclick={() => handleSetStatus('inprogress')}
+								class={cn(
+									'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer',
+									(!task.done && task.status === 'inprogress') && 'bg-accent font-medium'
+								)}
+							>
+								<span class="size-2 rounded-full bg-amber-500 shrink-0"></span>
+								<span>In Progress</span>
+							</DropdownMenu.Item>
+							<DropdownMenu.Item
+								onclick={() => handleSetStatus('done')}
+								class={cn(
+									'py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer',
+									(task.done || task.status === 'done') && 'bg-accent font-medium'
+								)}
+							>
+								<span class="size-2 rounded-full bg-emerald-500 shrink-0"></span>
+								<span>Selesai</span>
+							</DropdownMenu.Item>
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
 				{:else if task?.done || task?.status === 'done'}
 					<Badge variant="outline" class="border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400 text-[10px]">
 						Selesai
@@ -516,271 +604,162 @@
 			{/if}
 		</div>
 
-		{#if !task?.deleted && onSetStatus}
-			<div class="flex items-center justify-between gap-2 pt-1 border-t border-border/60 flex-wrap">
-				<span class="text-[11px] text-muted-foreground shrink-0">Ubah status:</span>
-				<div class="flex gap-1 flex-wrap">
-					<button
-						type="button"
-						onclick={() => {
-							if (task) {
-								onSetStatus(task.id, 'todo');
-								task = null;
-							}
-						}}
+		{#if events.length > 0}
+			<div class="rounded-lg border border-border/50 bg-muted/20 overflow-hidden transition-colors">
+				<button
+					type="button"
+					onclick={() => (isHistoryOpen = !isHistoryOpen)}
+					class="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-colors cursor-pointer select-none"
+				>
+					<div class="flex items-center gap-1.5">
+						<Clock class="size-3.5 text-muted-foreground/70" />
+						<span>Riwayat Status</span>
+						<span class="text-[10px] text-muted-foreground/60 font-mono">({events.length})</span>
+					</div>
+					<ChevronDown
 						class={cn(
-							'rounded px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer',
-							!task?.done && (!task?.status || task?.status === 'todo')
-								? 'bg-blue-600 text-white font-semibold'
-								: 'bg-muted hover:bg-muted/80 text-muted-foreground'
+							'size-3.5 text-muted-foreground/70 transition-transform duration-200',
+							isHistoryOpen && 'rotate-180'
 						)}
-					>
-						Todo
-					</button>
-					<button
-						type="button"
-						onclick={() => {
-							if (task) {
-								onSetStatus(task.id, 'inprogress');
-								task = null;
-							}
-						}}
-						class={cn(
-							'rounded px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer',
-							!task?.done && task?.status === 'inprogress'
-								? 'bg-amber-600 text-white font-semibold'
-								: 'bg-muted hover:bg-muted/80 text-muted-foreground'
-						)}
-					>
-						In Progress
-					</button>
-					<button
-						type="button"
-						onclick={() => {
-							if (task) {
-								onSetStatus(task.id, 'done');
-								task = null;
-							}
-						}}
-						class={cn(
-							'rounded px-2 py-0.5 text-[10px] font-medium transition-colors cursor-pointer',
-							task?.done || task?.status === 'done'
-								? 'bg-emerald-600 text-white font-semibold'
-								: 'bg-muted hover:bg-muted/80 text-muted-foreground'
-						)}
-					>
-						Selesai
-					</button>
+					/>
+				</button>
+				{#if isHistoryOpen}
+					<div class="px-3 pb-2.5 pt-1 space-y-1.5 max-h-36 overflow-y-auto border-t border-border/40 text-[11px]">
+						{#each events as ev, idx (ev.id)}
+							<div class="flex items-center justify-between text-muted-foreground gap-2 min-w-0">
+								<div class="flex items-center gap-1.5 min-w-0 flex-1">
+									<span
+										class={cn(
+											'size-1.5 rounded-full shrink-0',
+											ev.status === 'done'
+										? 'bg-emerald-500'
+										: ev.status === 'inprogress'
+											? 'bg-amber-500'
+											: 'bg-blue-500'
+									)}
+								></span>
+								<span class="font-medium text-foreground break-words [overflow-wrap:anywhere]">
+									{#if idx === 0}
+										Dibuat ({ev.status === 'done' ? 'Selesai' : ev.status === 'inprogress' ? 'In Progress' : 'Todo'})
+									{:else}
+										Ubah ke {ev.status === 'done' ? 'Selesai' : ev.status === 'inprogress' ? 'In Progress' : 'Todo'}
+									{/if}
+								</span>
+							</div>
+							<span class="tabular-nums text-[10px] text-muted-foreground/70 shrink-0">
+								{formatFullDate(ev.created_at)}
+							</span>
+						</div>
+					{/each}
 				</div>
-			</div>
-		{/if}
- 
- 		{#if events.length > 0}
- 			<div class="space-y-1.5 pt-1 border-t border-border/60">
- 				<span class="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
- 					Riwayat Status
- 				</span>
- 				<div class="space-y-1.5 max-h-32 overflow-y-auto rounded-lg border bg-muted/20 p-2 text-[11px]">
- 					{#each events as ev, idx (ev.id)}
- 						<div class="flex items-center justify-between text-muted-foreground gap-2 min-w-0 flex-wrap">
- 							<div class="flex items-center gap-1.5 min-w-0 flex-1">
- 								<span
- 									class={cn(
- 										'size-1.5 rounded-full shrink-0',
- 										ev.status === 'done'
- 											? 'bg-emerald-500'
- 											: ev.status === 'inprogress'
- 												? 'bg-amber-500'
- 												: 'bg-blue-500'
- 									)}
- 								></span>
- 								<span class="font-medium text-foreground break-words [overflow-wrap:anywhere]">
- 									{#if idx === 0}
- 										Dibuat ({ev.status === 'done' ? 'Selesai' : ev.status === 'inprogress' ? 'In Progress' : 'Todo'})
- 									{:else}
- 										Ubah ke {ev.status === 'done' ? 'Selesai' : ev.status === 'inprogress' ? 'In Progress' : 'Todo'}
- 									{/if}
- 								</span>
- 							</div>
- 							<span class="tabular-nums text-[10px] text-muted-foreground/80 shrink-0">
- 								{formatFullDate(ev.created_at)}
- 							</span>
- 						</div>
- 					{/each}
- 				</div>
- 			</div>
- 		{/if}
- 
- 		<Dialog.Footer class="flex items-center justify-between gap-2 pt-2 flex-wrap sm:justify-between">
-			<div class="flex items-center gap-1.5 flex-wrap">
-				{#if task?.deleted}
-					{#if onRestore}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleRestore}
-										class="gap-1"
-									>
-										<RotateCcw class="size-3" />
-										<span>Pulihkan</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Pulihkan todo</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-					{#if onHardDelete}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="destructive"
-										size="xs"
-										onclick={handleHardDelete}
-										class="gap-1"
-									>
-										<Trash class="size-3" />
-										<span>Hapus Permanen</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Hapus permanen</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-				{:else}
-					{#if onStartEdit}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleEdit}
-										class="gap-1"
-									>
-										<Pencil class="size-3" />
-										<span>Edit</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Edit todo</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
+			{/if}
+		</div>
+	{/if}
 
-					{#if onDuplicate}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleDuplicate}
-										class="gap-1"
-									>
-										<Copy class="size-3" />
-										<span>Duplikat</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Buat salinan todo ini</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-
-					{#if onDuplicateToCategories}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleDuplicateToCategories}
-										class="gap-1"
-									>
-										<Copy class="size-3" />
-										<span>Duplikat ke Kategori</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Duplikat todo ini ke beberapa kategori</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-
-					{#if onCompare}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleCompare}
-										class="gap-1"
-									>
-										<ArrowLeftRight class="size-3" />
-										<span>Bandingkan</span>
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Bandingkan dengan todo lain</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-
-					{#if onToggleDone}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="outline"
-										size="xs"
-										onclick={handleToggleDone}
-										class={task?.done ? 'gap-1' : 'gap-1 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100/70 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400'}
-									>
-										{#if task?.done}
-											<Undo2 class="size-3" />
-											<span>Batal Selesai</span>
-										{:else}
-											<Check class="size-3" />
-											<span>Selesai</span>
-										{/if}
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>{task?.done ? 'Kembalikan ke belum selesai' : 'Tandai selesai'}</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
-
-					{#if onDelete}
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props })}
-									<Button
-										{...props}
-										variant="destructive"
-										size="xs"
-										onclick={handleDelete}
-									>
-										<Trash class="size-3" />
-									</Button>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content>Hapus</Tooltip.Content>
-						</Tooltip.Root>
-					{/if}
+	<Dialog.Footer class="flex items-center justify-between gap-2 pt-2 border-t border-border/40 sm:justify-between">
+		<div class="flex items-center gap-1.5">
+			{#if task?.deleted}
+				{#if onRestore}
+					<Button
+						variant="outline"
+						size="xs"
+						onclick={handleRestore}
+						class="gap-1.5 text-xs"
+					>
+						<RotateCcw class="size-3.5" />
+						<span>Pulihkan</span>
+					</Button>
 				{/if}
-			</div>
+				{#if onHardDelete}
+					<Button
+						variant="destructive"
+						size="xs"
+						onclick={handleHardDelete}
+						class="gap-1.5 text-xs"
+					>
+						<Trash class="size-3.5" />
+						<span>Hapus Permanen</span>
+					</Button>
+				{/if}
+			{:else}
+				{#if onStartEdit}
+					<Button
+						variant="outline"
+						size="xs"
+						onclick={handleEdit}
+						class="gap-1.5 text-xs font-medium cursor-pointer"
+					>
+						<Pencil class="size-3.5" />
+						<span>Edit</span>
+					</Button>
+				{/if}
 
-			<Dialog.Close class={buttonVariants({ variant: 'ghost', size: 'xs' })}>
-				Tutup
-			</Dialog.Close>
-		</Dialog.Footer>
+				{#if onDuplicate || onDuplicateToCategories || onCompare || onToggleDone || onDelete}
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									variant="ghost"
+									size="icon-xs"
+									class="size-7 text-muted-foreground hover:text-foreground rounded-md cursor-pointer"
+									title="Opsi lainnya"
+								>
+									<Ellipsis class="size-4" />
+								</Button>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="start" class="min-w-44 p-1 rounded-lg border border-border shadow-lg">
+							{#if onToggleDone}
+								<DropdownMenu.Item onclick={handleToggleDone} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+									{#if task?.done}
+										<Undo2 class="size-3.5" />
+										<span>Batal Selesai</span>
+									{:else}
+										<Check class="size-3.5 text-emerald-600" />
+										<span>Tandai Selesai</span>
+									{/if}
+								</DropdownMenu.Item>
+								<DropdownMenu.Separator />
+							{/if}
+
+							{#if onDuplicate}
+								<DropdownMenu.Item onclick={handleDuplicate} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+									<Copy class="size-3.5" />
+									<span>Duplikat</span>
+								</DropdownMenu.Item>
+							{/if}
+
+							{#if onDuplicateToCategories}
+								<DropdownMenu.Item onclick={handleDuplicateToCategories} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+									<Copy class="size-3.5" />
+									<span>Duplikat ke Kategori...</span>
+								</DropdownMenu.Item>
+							{/if}
+
+							{#if onCompare}
+								<DropdownMenu.Item onclick={handleCompare} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer">
+									<ArrowLeftRight class="size-3.5" />
+									<span>Bandingkan Todo...</span>
+								</DropdownMenu.Item>
+							{/if}
+
+							{#if onDelete}
+								<DropdownMenu.Separator />
+								<DropdownMenu.Item onclick={handleDelete} class="py-1.5 px-2 text-xs rounded-md gap-2 cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10">
+									<Trash class="size-3.5" />
+									<span>Hapus</span>
+								</DropdownMenu.Item>
+							{/if}
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+				{/if}
+			{/if}
+		</div>
+
+		<Dialog.Close class={buttonVariants({ variant: 'ghost', size: 'xs', class: 'px-3 text-xs cursor-pointer' })}>
+			Tutup
+		</Dialog.Close>
+	</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>
